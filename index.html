@@ -970,6 +970,9 @@ function trueCount(){ const u=unseen().reduce((a,b)=>a+b,0); return u>0?runningC
    4. 建议 —— counter 用当前牌堆，basic 用完整牌堆
    ============================================================ */
 const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
+/* 真人座位在辅助里应当被当成哪种程序：基本策略档 → basic，算牌档 → counter。
+   下注、保险、打法三处必须用同一个，否则会出现「打法按基本策略、下注按算牌」的错配。 */
+const asMode = seat => ({...seat, kind: S.assistMode==="basic" ? "basic" : "counter"});
 const engFor = seat =>
   (seat.kind==="basic" || (seat.kind==="human" && S.assistMode==="basic"))
     ? S.basic : getEV(unseen());
@@ -1434,7 +1437,7 @@ function renderActions(){
 
   /* ---- 提示 ---- */
   if(S.phase==="bet") hint.innerHTML = inPlay().length
-    ? `筹码单位 ${money(S.chip)}，上限 ${S.maxBet?money(S.maxBet):"不限"}。`+(S.assist&&me?` 建议 <b>${money(adviseBet({...me,kind:"counter"}).bet)}</b>。`:"")
+    ? `筹码单位 ${money(S.chip)}，上限 ${S.maxBet?money(S.maxBet):"不限"}。`+(S.assist&&me?` 建议 <b>${money(adviseBet(asMode(me)).bet)}</b>。`:"")
     : `所有座位都已止损离桌。`;
   else if(S.phase==="play") hint.innerHTML = seat
     ? (seat.kind==="human" ? `轮到 <b>${seat.name}</b>。`+(S.assist?` 建议 <b>${ACT[adv.pick.a]}</b>。`:"")
@@ -1476,14 +1479,14 @@ function renderRail(phase){
     return;
   }
   if(s.kind==="human" && phase==="bet"){
-    const a=adviseBet({...s,kind:"counter"});
+    const a=adviseBet(asMode(s));
     $("advisorFor").textContent=s.name+" · 下多少";
     box.innerHTML=`<div class="verdict"><span class="big">${money(a.bet)}</span>
       <span class="sub">每 $100 的平均结果 <b style="color:${a.edge>0?"var(--pos)":"var(--neg)"}">${per100(a.edge)}</b></span></div>${ul(a.why)}`;
     return;
   }
   if(s.kind==="human" && phase==="insurance" && S.turn===s.i){
-    const a=adviseInsurance({...s,kind:"counter"});
+    const a=adviseInsurance(asMode(s));
     $("advisorFor").textContent=s.name+" · 保险";
     box.innerHTML=`<div class="verdict"><span class="big">${a.take?"买保险":"不买"}</span>
       <span class="sub">每 $100 <b style="color:${a.ev>0?"var(--pos)":"var(--neg)"}">${per100(a.ev)}</b></span></div>${ul(a.why)}`;
