@@ -1267,7 +1267,7 @@ function renderTable(){
       hb.appendChild(chipsEl(h.bet,`${S.handNo}:${s.i}:${hi}`));
       el.appendChild(hb);
     });
-    if(s.betHist.length>1){
+    if(s.betHist.length){
       const h=s.betHist.slice(-14), mx=Math.max(...h, S.chip);
       const strip=document.createElement("div"); strip.className="bethist";
       strip.innerHTML=`<span class="bhk">本靴注码</span>`+h.map((b,i)=>
@@ -1402,7 +1402,7 @@ function renderActions(){
 
   /* ---- 提示 ---- */
   if(S.phase==="bet") hint.innerHTML = inPlay().length
-    ? `筹码单位 ${money(S.chip)}，上限 ${money(S.maxBet)}。`+(S.assist&&me?` 建议 <b>${money(adviseBet({...me,kind:"counter"}).bet)}</b>。`:"")
+    ? `筹码单位 ${money(S.chip)}，上限 ${S.maxBet?money(S.maxBet):"不限"}。`+(S.assist&&me?` 建议 <b>${money(adviseBet({...me,kind:"counter"}).bet)}</b>。`:"")
     : `所有座位都已止损离桌。`;
   else if(S.phase==="play") hint.innerHTML = seat
     ? (seat.kind==="human" ? `轮到 <b>${seat.name}</b>。`+(S.assist?` 建议 <b>${ACT[adv.pick.a]}</b>。`:"")
