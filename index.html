@@ -352,6 +352,14 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
   color:var(--ink-2); font-size:12px; line-height:1.55}
 .offbar b{font-weight:700; color:var(--ink); margin-right:6px}
 
+.bethist{display:flex; align-items:flex-end; gap:2px; height:30px; margin-top:9px;
+  padding-top:4px; border-top:1px dashed var(--rule-soft)}
+.bethist .bhk{font-size:9.5px; color:var(--ink-3); align-self:center; margin-right:5px; white-space:nowrap}
+.bethist .bhv{font-family:var(--mono); font-size:10.5px; color:var(--ink-2); align-self:center; margin-left:5px}
+.bethist i{flex:1 1 4px; min-width:3px; max-width:10px; background:var(--rule); border-radius:1px}
+.bethist i.up{background:var(--accent-2)}
+.bethist i.now{outline:1px solid var(--ink-3); outline-offset:1px}
+
 /* log */
 .log{max-height:290px; overflow-y:auto; padding:0}
 .logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
@@ -456,12 +464,17 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
           <option value="5" selected>$5</option><option value="10">$10</option>
           <option value="25">$25</option><option value="100">$100</option></select></div>
       <div class="field"><label for="cfgMax">最大下注</label>
-        <select id="cfgMax"><option value="50">$50（M/m=5）</option><option value="100">$100</option>
-          <option value="500" selected>$500</option><option value="2000">$2,000</option>
-          <option value="10000">$10,000</option></select></div>
+        <select id="cfgMax"><option value="0" selected>不限（凯利说多少就多少）</option>
+          <option value="50">$50</option><option value="100">$100</option>
+          <option value="500">$500</option><option value="2000">$2,000</option></select></div>
       <div class="field"><label for="cfgStop">止损线</label>
-        <select id="cfgStop"><option value="0">不设</option><option value="0.25">亏掉 25% 本金</option>
-          <option value="0.5" selected>亏掉 50% 本金</option><option value="0.75">亏掉 75% 本金</option></select></div>
+        <select id="cfgStop"><option value="0" selected>不设（可以输光）</option>
+          <option value="0.25">亏掉 25% 收手</option><option value="0.5">亏掉 50% 收手</option>
+          <option value="0.75">亏掉 75% 收手</option></select></div>
+      <div class="field"><label for="cfgWin">目标盈利</label>
+        <select id="cfgWin"><option value="0" selected>不设（一直打）</option>
+          <option value="0.25">赚到 +25% 收手</option><option value="0.5">赚到 +50% 收手</option>
+          <option value="1">本金翻倍收手</option><option value="2">赚到 3 倍收手</option></select></div>
       <div class="field"><label for="cfgBuyin">每人带多少本金</label>
         <select id="cfgBuyin"><option value="2000">$2,000</option>
           <option value="10000" selected>$10,000</option><option value="50000">$50,000</option></select></div>
@@ -470,7 +483,7 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
     <h3>桌规</h3>
     <div class="fields">
       <div class="field"><label for="cfgDecks">副数</label>
-        <select id="cfgDecks"><option value="1" selected>1（索普原版）</option><option value="2">2</option><option value="6">6</option></select></div>
+        <select id="cfgDecks"><option value="1" selected>1 副 · 52 张（索普原版，注码摆动最大）</option><option value="2">2 副 · 104 张</option><option value="4">4 副 · 208 张</option><option value="6">6 副 · 312 张</option><option value="8">8 副 · 416 张</option></select></div>
       <div class="field"><label for="cfgPen">穿透</label>
         <select id="cfgPen"><option value="0.5">50%</option><option value="0.75" selected>75%</option><option value="0.9">90%</option></select></div>
       <div class="field"><label for="cfgBJ">黑杰克赔率</label>
@@ -511,7 +524,8 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
   <div class="topctl">
     <div><div class="lbl" style="margin-bottom:4px">辅助</div>
       <div class="seg" id="assistSeg">
-        <button data-assist="on" aria-pressed="true">开</button>
+        <button data-assist="counter" aria-pressed="true">算牌</button>
+        <button data-assist="basic" aria-pressed="false">基本</button>
         <button data-assist="off" aria-pressed="false">关</button>
       </div></div>
     <div><div class="lbl" style="margin-bottom:4px">速度</div>
@@ -679,7 +693,8 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
       <li>AI 的决策函数<b>只接收已公开的牌</b>，拿不到牌靴</li>
       <li>暗牌在庄家回合前不计入 Q(I)</li>
       <li><b>没有模型、不发任何网络请求</b>——同一副牌堆必定给出同一个决定</li>
-      <li>首张牌明烧，计入已见</li>
+      <li><b>首张牌明烧</b>：翻开给所有人看，所以未知牌是 51 张而非 52</li>
+      <li>书里单副牌的做法是「明烧的那张同时当切牌位」；本模拟把两者<b>拆开</b>，好让穿透率可单独调</li>
     </ul>
   </div>
   
@@ -847,14 +862,14 @@ function blankStats(){
 }
 function mkSeat(i,kind){
   return {i, kind, name:"", bank:S.buyin, startBank:S.buyin,
-          hands:[], active:0, bet:0, insurance:0, thinking:[], result:null, stopped:false,
+          hands:[], active:0, bet:0, insurance:0, thinking:[], result:null, stopped:false, betHist:[],
           st:{hands:0, net:0, edgeSum:0, betSum:0}};
 }
 const S={
   decks:1, penetration:.75, bjPay:1.5, das:true, kellyFrac:.5,
-  chip:5, maxBet:500, buyin:10000, stopLoss:.5, busy:false,
+  chip:5, maxBet:0, buyin:10000, stopLoss:0, winTarget:0, busy:false,
   seats:[], dealerHuman:false,
-  assist:true, speedMul:1, animated:new Set(), tick:0,
+  assist:true, assistMode:"counter", speedMul:1, animated:new Set(), tick:0,
   shoe:[], cut:0, seen:new Array(11).fill(0), total:new Array(11).fill(0),
   shoeHash:"", shoeSeq:"",
   phase:"setup", turn:0, dealer:[], holeUp:false, peeked:null,
@@ -864,14 +879,23 @@ const $=id=>document.getElementById(id);
 const sp = ms => Math.max(30, Math.round(ms*S.speedMul));
 const live = () => S.seats.filter(s=>s.kind!=="empty");
 const inPlay = () => live().filter(s=>!s.stopped);
+const capBet = b => S.maxBet ? Math.min(b, S.maxBet) : b;   // maxBet=0 表示不限
 function checkStops(){
-  if(!S.stopLoss) return;
   for(const s of live()){
-    if(!s.stopped && s.bank <= s.startBank*(1-S.stopLoss)){
-      s.stopped=true;
+    if(s.stopped) continue;
+    if(s.bank < S.chip){
+      s.stopped=true; s.why="输光";
+      pushLog("lose", `${s.name} 输光离桌`, `本金已不足最小注 ${money(S.chip)}。`); continue;
+    }
+    if(S.stopLoss && s.bank <= s.startBank*(1-S.stopLoss)){
+      s.stopped=true; s.why="止损";
       pushLog("lose", `${s.name} 触及止损`,
-        `亏掉本金的 ${Math.round(S.stopLoss*100)}%（${money(s.startBank-s.bank)}），离桌。`
-        +(s.kind==="human"?" 你可以在下方解除止损继续，但那正是索普反复警告的事。":""));
+        `亏掉本金的 ${Math.round(S.stopLoss*100)}%（${money(s.startBank-s.bank)}），离桌。`); continue;
+    }
+    if(S.winTarget && s.bank >= s.startBank*(1+S.winTarget)){
+      s.stopped=true; s.why="达标";
+      pushLog("win", `${s.name} 达到目标`,
+        `赚到 +${Math.round(S.winTarget*100)}%（${money(s.bank-s.startBank)}），收手离桌。`);
     }
   }
 }
@@ -890,6 +914,7 @@ function newShoe(){
   }
   S.stats.shuffles++;
   S.animated=new Set();
+  for(const x of S.seats) x.betHist=[];   // 注码历史按靴清零
   S.shoe=buildShoe(S.decks); shuffle(S.shoe);
   const nSeat=Math.max(1, S.seats.filter(x=>x.kind!=="empty").length);
   const reserve=8+5*nSeat;              // 整桌一手最坏消耗，含分牌与补牌
@@ -931,7 +956,9 @@ function trueCount(){ const u=unseen().reduce((a,b)=>a+b,0); return u>0?runningC
    4. 建议 —— counter 用当前牌堆，basic 用完整牌堆
    ============================================================ */
 const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
-const engFor = seat => seat.kind==="basic" ? S.basic : getEV(unseen());
+const engFor = seat =>
+  (seat.kind==="basic" || (seat.kind==="human" && S.assistMode==="basic"))
+    ? S.basic : getEV(unseen());
 
 function adviseBet(seat){
   if(seat.kind==="basic"){
@@ -942,7 +969,7 @@ function adviseBet(seat){
   const eng=getEV(unseen()), edge=eng.preDeal();
   const kFull=edge/1.26, k=kFull*S.kellyFrac;
   let bet = k>0 ? seat.bank*k : S.chip;
-  bet=Math.max(S.chip, Math.min(S.maxBet, Math.min(seat.bank, Math.round(bet/S.chip)*S.chip)));
+  bet=Math.max(S.chip, Math.min(seat.bank, capBet(Math.round(bet/S.chip)*S.chip)));
   const tc=trueCount();
   const why = edge>0
     ? [`还剩 <b>${eng.n}</b> 张，大牌偏多（真数 <b>+${tc.toFixed(1)}</b>）。`,
@@ -1003,6 +1030,7 @@ function startRound(){
   S.pending={edge:getEV(unseen()).preDeal(), depth:1-S.shoe.length/(S.decks*52)};
   S.stats.hands++;
   for(const s of inPlay()){
+    s.betHist.push(s.bet);
     s.hands=[{cards:[], bet:s.bet, doubled:false, done:false, fromSplit:false, splitAce:false}];
     s.active=0; s.insurance=0; s.result=null;
     s.bank-=s.bet;
@@ -1239,6 +1267,14 @@ function renderTable(){
       hb.appendChild(chipsEl(h.bet,`${S.handNo}:${s.i}:${hi}`));
       el.appendChild(hb);
     });
+    if(s.betHist.length>1){
+      const h=s.betHist.slice(-14), mx=Math.max(...h, S.chip);
+      const strip=document.createElement("div"); strip.className="bethist";
+      strip.innerHTML=`<span class="bhk">本靴注码</span>`+h.map((b,i)=>
+        `<i style="height:${Math.max(12,b/mx*100)}%" class="${i===h.length-1?"now":""}${b>S.chip?" up":""}" title="${money(b)}"></i>`
+      ).join("")+`<span class="bhv">${money(h[h.length-1])}</span>`;
+      el.appendChild(strip);
+    }
     if(s.result && S.phase==="over"){
       const r=document.createElement("div");
       r.className="seatres "+(s.result.delta>0?"w":s.result.delta<0?"l":"");
@@ -1256,6 +1292,8 @@ function renderTable(){
   $("handCount").textContent=`第 ${S.handNo} 手`;
   const ob=$("offBar"); ob.hidden=S.assist;
   if(!S.assist) ob.innerHTML=`<b>辅助已关</b>　不显示任何建议、计数或期望。程序照常按同一套算法运行，只是不给你看。`;
+  else if(S.assistMode==="basic"){ ob.hidden=false;
+    ob.innerHTML=`<b>辅助：基本策略</b>　给你的建议只用<b>完整牌堆</b>算，不看已经出过什么牌——和「基本策略电脑」同一个大脑。想要算牌级别的建议就切到「算牌」。`; }
   const lb=$("labBar"); lb.hidden=!isLab();
   if(isLab()) lb.innerHTML=`<b>实验局</b>　全场都是程序，没有真人。可以用下方的「快跑」一次打完上万手，
     直接看长期趋势而不是一两手的运气。`;
@@ -1303,11 +1341,11 @@ function renderActions(){
   /* ---- 第2排：下注框 + 主操作，也固定 ---- */
   const stake=document.createElement("div"); stake.className="stake";
   const inp=document.createElement("input");
-  inp.type="number"; inp.id="betInput"; inp.min=S.chip; inp.max=S.maxBet; inp.step=S.chip;
+  inp.type="number"; inp.id="betInput"; inp.min=S.chip; inp.max=S.maxBet||1e9; inp.step=S.chip;
   const me=inPlay().find(x=>x.kind==="human");
   inp.value = me ? (me.bet||S.chip) : S.chip;
   inp.disabled = !(S.phase==="bet" && me);
-  if(me) inp.oninput=()=>{ me.bet=Math.max(S.chip,Math.min(S.maxBet,Math.min(me.bank,+inp.value||S.chip))); };
+  if(me) inp.oninput=()=>{ me.bet=Math.max(S.chip,Math.min(me.bank,capBet(+inp.value||S.chip))); };
   stake.append(document.createTextNode("下注 $"), inp);
   row2.appendChild(stake);
 
@@ -1321,7 +1359,7 @@ function renderActions(){
         for(const x of inPlay()){
           if(x.kind!=="human"){ const b=adviseBet(x); x.bet=Math.min(x.bank,b.bet); x.thinking=[{t:`下注 ${money(x.bet)}`,why:b.why}]; }
           else x.thinking=[];
-          x.bet=Math.max(S.chip,Math.min(S.maxBet,Math.min(x.bank,x.bet||S.chip)));
+          x.bet=Math.max(S.chip,Math.min(x.bank,capBet(x.bet||S.chip)));
         }
         startRound();
       };
@@ -1566,7 +1604,8 @@ function fastRound(){
   const act=inPlay(); if(!act.length) return false;
   for(const s of act){
     const a=adviseBet(s);
-    s.bet=Math.max(S.chip,Math.min(S.maxBet,Math.min(s.bank,a.bet)));
+    s.bet=Math.max(S.chip,Math.min(s.bank,capBet(a.bet)));
+    s.betHist.push(s.bet);
     s.thinking=[]; s.hands=[{cards:[],bet:s.bet,doubled:false,done:false,fromSplit:false,splitAce:false}];
     s.active=0; s.insurance=0; s.result=null; s.bank-=s.bet;
   }
@@ -1677,7 +1716,7 @@ function openSetup(){
   $("cfgDealer").value = S.dealerHuman?"human":"cpu";
   $("cfgChip").value=S.chip; $("cfgMax").value=S.maxBet; $("cfgBuyin").value=S.buyin;
   $("cfgDecks").value=S.decks; $("cfgPen").value=S.penetration; $("cfgBJ").value=S.bjPay;
-  $("cfgStop").value=S.stopLoss;
+  $("cfgStop").value=S.stopLoss; $("cfgWin").value=S.winTarget;
   for(const id of ["cfgDecks","cfgPen","cfgChip","cfgBuyin"]) $(id).onchange=penWarn;
   for(let i=0;i<SEATN;i++) $("k"+i).addEventListener("change",penWarn);
   penWarn();
@@ -1704,8 +1743,8 @@ function penWarn(){
 function startMatch(){
   S.decks=+$("cfgDecks").value; S.penetration=+$("cfgPen").value; S.bjPay=+$("cfgBJ").value;
   S.chip=+$("cfgChip").value; S.maxBet=+$("cfgMax").value; S.buyin=+$("cfgBuyin").value;
-  S.stopLoss=+$("cfgStop").value;
-  if(S.maxBet<S.chip) S.maxBet=S.chip*50;
+  S.stopLoss=+$("cfgStop").value; S.winTarget=+$("cfgWin").value;
+  if(S.maxBet && S.maxBet<S.chip) S.maxBet=S.chip*50;
   S.dealerHuman = $("cfgDealer").value==="human";
   let hn=0, cn=0, bn=0;
   S.seats=[];
@@ -1735,7 +1774,7 @@ function bindSeg(id,attr,fn){
     fn(b.dataset[attr]);
   });
 }
-bindSeg("assistSeg","assist",v=>{ S.assist=(v==="on"); render(); });
+bindSeg("assistSeg","assist",v=>{ S.assistMode=v; S.assist=(v!=="off"); render(); });
 bindSeg("speedSeg","speed",v=>{ S.speedMul=+v; });
 $("focusRow").addEventListener("click",e=>{
   const b=e.target.closest("button[data-seat]"); if(!b) return;
@@ -1767,11 +1806,11 @@ $("optKelly").onchange=e=>{ S.kellyFrac=+e.target.value; render(); };
 S.records=loadRecords();
 /* 进来就是一桌可玩的牌，配置是按钮不是关卡 */
 (function boot(){
-  S.decks=6; S.penetration=.90; S.bjPay=1.5;
-  S.chip=5; S.maxBet=500; S.buyin=10000; S.stopLoss=.5;
+  S.decks=1; S.penetration=.90; S.bjPay=1.5;          // 单副牌：计数摆动最大，注码变化最明显
+  S.chip=5; S.maxBet=0; S.buyin=10000; S.stopLoss=0; S.winTarget=0;
   S.dealerHuman=false;
-  S.seats=[mkSeat(0,"counter"), mkSeat(1,"basic"), mkSeat(2,"human"), mkSeat(3,"empty")];
-  S.seats[0].name="算牌"; S.seats[1].name="基本"; S.seats[2].name="你";
+  S.seats=[mkSeat(0,"counter"), mkSeat(1,"human"), mkSeat(2,"empty"), mkSeat(3,"empty")];
+  S.seats[0].name="算牌"; S.seats[1].name="你";
   for(const x of S.seats) x.bet=S.chip;
   S.focus=0; S.handNo=0; S.logs=[]; S.stats=blankStats();
   S.dealer=[]; S.turn=-1; S.holeUp=false;
