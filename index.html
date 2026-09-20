@@ -535,6 +535,7 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
       <div class="seg" id="assistSeg">
         <button data-assist="off" aria-pressed="false">关</button>
         <button data-assist="count" aria-pressed="false">计数</button>
+        <button data-assist="thorp" aria-pressed="false">索普原法</button>
         <button data-assist="full" aria-pressed="true">算牌程序</button>
       </div></div>
     <div><div class="lbl" style="margin-bottom:4px">速度</div>
@@ -867,7 +868,8 @@ const KIND={
   human  :{n:"真人",         s:"你自己打"},
   counter:{n:"算牌程序",     s:"计数 + 凯利下注 + 按当前牌堆算最优打法"},
   basic  :{n:"基本策略电脑", s:"只打完整牌堆的最优解，平注，不计数"},
-  five   :{n:"算5法（论文原版）", s:"Thorp 1961 正式发表的系统：只数5，四张5出尽才抬注"},
+  five   :{n:"算5法（论文原版）", s:"Thorp 1961 正式发表：只数5，四张5出尽才抬注"},
+  ten    :{n:"算10法（实战版）", s:"索普1961实战用的：盯「非10÷10」的比值，初始2.25"},
 };
 const SEC_HAND=21, CARDS_PER_HAND=5.4;
 const shuffleSec=()=>18+10*S.decks;
@@ -973,11 +975,14 @@ function trueCount(){ const u=unseen().reduce((a,b)=>a+b,0); return u>0?runningC
 const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
 /* 真人座位在辅助里应当被当成哪种程序：基本策略档 → basic，算牌档 → counter。
    下注、保险、打法三处必须用同一个，否则会出现「打法按基本策略、下注按算牌」的错配。 */
-const asMode = seat => ({...seat, kind:"counter"});
+/* 辅助档位决定「把这个真人座位当成哪种程序」：
+   索普原法档 → 按 1961 论文的算5法给建议；算牌程序档 → 现代精确 EV。*/
+const asMode = seat => ({...seat, kind: S.assistMode==="thorp" ? "five" : "counter"});
 const engFor = seat => {
   if(seat.kind==="basic") return S.basic;
   /* 算5法：论文 §3 —— Q(5)≠0 时用完整牌堆策略，Q(5)=0 时才换成当前牌堆的最优解 */
   if(seat.kind==="five")  return unseen()[5]===0 ? getEV(unseen()) : S.basic;
+  if(seat.kind==="ten")   return getEV(unseen());   // 算10法确实会按10的比例调整打法
   return getEV(unseen());
 };
 
@@ -986,6 +991,22 @@ function adviseBet(seat){
     return {bet:Math.min(seat.bank,S.chip), edge:S.basic.preDeal(), why:[
       `基本策略电脑<b>不计数</b>，永远平注 <b>${money(S.chip)}</b>。`,
       `它长期每下注 $100 亏 <b>${Math.abs(S.basic.preDeal()*100).toFixed(0)} 元</b>——打得完全正确，但没有优势。`]};
+  }
+  /* 算10法：书第5章 —— 只盯「非10÷10」的比值。初始 36/16=2.25，比值 2.0 时玩家约有 1% 优势。
+     按这两个锚点线性外推估计优势，再用凯利定注。他估的是优势，不是精确期望。*/
+  if(seat.kind==="ten"){
+    const u=unseen(), tens=u[10], non=u.slice(1,10).reduce((a,b)=>a+b,0);
+    const ratio = tens>0 ? non/tens : Infinity;
+    const est = ratio===Infinity ? -0.05 : -0.0021 + (2.25-ratio)*0.0484;
+    const k2=Math.max(0,est/1.26)*S.kellyFrac;
+    let b2 = est>0 ? Math.max(0,seat.bank)*k2 : S.chip;
+    b2=Math.max(S.chip,Math.min(seat.bank,capBet(Math.round(b2/S.chip)*S.chip)));
+    return {bet:b2, edge:est, why:[
+      `算10法只追两个数：<b>非10 剩 ${non} 张</b>、<b>10 剩 ${tens} 张</b>。`,
+      `比值 = ${ratio===Infinity?"∞":ratio.toFixed(2)}（开局 36÷16 = <b>2.25</b>，越小越有利）。`,
+      est>0 ? `比值已低于 2.25 → 估计优势 <b>${pct(est)}</b> → 押 <b>${money(b2)}</b>。`
+            : `比值还没降下来 → 押最小注 <b>${money(S.chip)}</b>。`,
+      `书第5章的锚点：比值到 <b>2.0</b> 时玩家约有 <b>1%</b> 优势。他估的是优势，不是精确期望。`]};
   }
   /* 算5法：只看「5 还剩几张」。论文 §3 —— Q(5)≠0 押最小注 m，Q(5)=0 才押大注 M。 */
   if(seat.kind==="five" && unseen()[5]>0){
@@ -1050,6 +1071,9 @@ function advisePlay(seat){
   const why=[`手上 <b>${hand}</b>，庄家明牌 <b>${up}</b>。`];
   if(seat.kind==="basic"){
     why.push(`它按<b>完整牌堆</b>的最优解打，不看已经出过什么牌。`);
+  }else if(seat.kind==="ten"){
+    const u=unseen(), t=u[10], n2=u.slice(1,10).reduce((a,b)=>a+b,0);
+    why.push(`算10法按「非10÷10 = <b>${t>0?(n2/t).toFixed(2):"∞"}</b>」调整打法——10 越密，加倍和分牌越激进。`);
   }else if(seat.kind==="five"){
     why.push(unseen()[5]===0
       ? `Q(5)=0，切换到论文 <b>Table 2</b> 那张专用策略表（表头没有「5」，因为庄家不可能亮出 5）。`
@@ -1348,6 +1372,8 @@ function renderTable(){
     ob.innerHTML=`<b>辅助已关</b>　计数、期望、建议全部隐藏。程序照常按同一套算法运行，只是不给你看。`;
   else if(S.assistMode==="count")
     ob.innerHTML=`<b>只计数</b>　替你数牌、算优势，但<b>不给下注和打法建议</b>——数字给你，决定你自己做。`;
+  else if(S.assistMode==="thorp")
+    ob.innerHTML=`<b>索普原法</b>　按 1961 年论文 §3 的两句话给建议：<b>只数 5</b>。Q(5)≠0 押最小注＋完整牌堆策略；Q(5)=0 才抬注并换 Table 2。这是他真正发表的系统，简单到能在赌桌上用脑子跑。`;
   const lb=$("labBar"); lb.hidden=!isLab();
   if(isLab()) lb.innerHTML=`<b>实验局</b>　全场都是程序，没有真人。可以用下方的「快跑」一次打完上万手，
     直接看长期趋势而不是一两手的运气。`;
@@ -1368,7 +1394,7 @@ function renderActions(){
   const needShuffle=S.shoe.length<=S.cut;
   const seat=curSeat();
   const playing = S.phase==="play" && seat && seat.kind==="human";
-  const adv = (playing && S.assist) ? advisePlay(seat) : null;
+  const adv = (playing && S.assist) ? advisePlay(seat.kind==="human"?asMode(seat):seat) : null;
 
   /* ---- 第1排：四个出牌槽，位置永远固定，不可用时置灰而不是消失 ---- */
   /* 合法动作表：始终要算（决定哪些槽可点），但「哪个最优」只在辅助开启时求 */
@@ -1488,7 +1514,7 @@ function renderRail(phase){
 
   /* 真人座位、且轮到他行动 → 给建议；其余 → 给该座位的思考过程 */
   if(s.kind==="human" && S.turn===s.i && phase==="play"){
-    const a=advisePlay(s);
+    const a=advisePlay(asMode(s));
     $("advisorFor").textContent=s.name+" · 怎么打";
     box.innerHTML=`<div class="verdict"><span class="big">${ACT[a.pick.a]}</span>
       ${a.deviates?`<span class="dev">偏离基本策略</span>`:""}</div>
@@ -1550,6 +1576,17 @@ function renderQ(){
     const n=document.createElement("span"); n.textContent=comp[r]; nums.appendChild(n);
   }
   const eng=getEV(comp), edge=eng.preDeal(), tc=trueCount();
+  if(S.assistMode==="thorp"){
+    /* 索普 1961 的系统只追踪一个数字。把这件事显示出来本身就是教学。*/
+    const five=comp[5];
+    $("stats").innerHTML=`<div class="stat" style="grid-column:1/-1">
+      <div class="k">索普原法只需要这一个数字</div>
+      <div class="v ${five===0?"pos":""}" style="font-size:26px">5 还剩 ${five} 张</div>
+      <div class="s">${five===0
+        ? "<b>Q(5)=0 —— 抬注时刻。</b>论文 Table 1：玩家期望 +3.29%，全部十种「抽走四张」里最有利的一种。"
+        : "还没出尽 → 押最小注，用完整牌堆策略打。论文说这个时刻只占 3.5%–10% 的手。"}</div></div>`;
+    return;
+  }
   $("stats").innerHTML=[
     ["还剩多少张", eng.n, "没发出来的牌", ""],
     ["真数", (tc>=0?"+":"−")+Math.abs(tc).toFixed(1), tc>0?"大牌偏多，利玩家":tc<0?"小牌偏多，利庄家":"和开局差不多", ""],
@@ -1594,7 +1631,7 @@ function renderCasino(){
     <div class="depth">${rows}</div>
     <p class="plain">提前洗牌能把它按回左边那一档——代价是每小时少打几手，你从<b>不算牌的客人</b>身上赚的也跟着少。</p>`;
 }
-const SEATCOL={counter:"var(--accent)", basic:"var(--ink-3)", human:"#2C6BA8", five:"#9A6B05"};
+const SEATCOL={counter:"var(--accent)", basic:"var(--ink-3)", human:"#2C6BA8", five:"#9A6B05", ten:"#7E3C96"};
 function renderEquity(){
   const box=$("eqPanel"), seats=live().filter(s=>s.bankHist.length>1);
   if(!seats.length){ box.hidden=true; return; }
@@ -1830,6 +1867,11 @@ function penWarn(){
     比例太低时，凯利算出的注额会被最小注下限整个吃掉——等于平注打基本策略，<b>长期必输</b>。
     实测：6 副牌、本金 $2,000、最小注 $10（比例 200）只有 2.7% 的手能抬注，优势 −0.57%；
     把最小注降到 $2（比例 1000）立刻变成 +1.57%。`);
+  if(n>1 && [...Array(SEATN).keys()].some(i=>$("k"+i).value==="five"))
+    msgs.push(`<b>算5法需要单副牌 + 尽量少的座位。</b>它要等「四张 5 全部出尽」才抬注，
+      而这只在单副牌发得很深时才会发生。座位一多，每靴手数骤降，它一辈子也等不到抬注时刻——
+      实测 4 座位单副牌时每靴只有 2 手，算5法的抬注比例是 <b>0%</b>。
+      要和它对比，请让它<b>单独跟庄家打</b>，再和别的策略分别跑。`);
   if(rounds<4.5) msgs.push(`<b>每靴只够打 ${rounds.toFixed(1)} 手。</b>
     ${n} 个座位每手约吃掉 ${perRound.toFixed(0)} 张，计数还没积累就要重洗。减少座位或增加副数。`);
   if(!msgs.length){ box.hidden=true; return; }
@@ -1841,7 +1883,7 @@ function startMatch(){
   S.stopLoss=+$("cfgStop").value; S.winTarget=+$("cfgWin").value;
   if(S.maxBet && S.maxBet<S.chip) S.maxBet=S.chip*50;
   S.dealerHuman = $("cfgDealer").value==="human";
-  let hn=0, cn=0, bn=0, fn=0;
+  let hn=0, cn=0, bn=0, fn=0, tn=0;
   S.seats=[];
   for(let i=0;i<SEATN;i++){
     const k=$("k"+i).value, s=mkSeat(i,k);
@@ -1849,6 +1891,7 @@ function startMatch(){
     if(k==="counter") s.name = "算牌"+(++cn>1?cn:"");
     if(k==="basic")   s.name = "基本"+(++bn>1?bn:"");
     if(k==="five")    s.name = "算5法"+(++fn>1?fn:"");
+    if(k==="ten")     s.name = "算10法"+(++tn>1?tn:"");
     s.bet=S.chip; S.seats.push(s);
   }
   if(!live().length){ S.seats[1]=mkSeat(1,"counter"); S.seats[1].name="算牌"; S.seats[1].bet=S.chip; }
@@ -1872,7 +1915,7 @@ function bindSeg(id,attr,fn){
 }
 bindSeg("assistSeg","assist",v=>{
   S.assistMode=v;
-  S.assist      = (v==="full");   // 是否给建议
+  S.assist      = (v==="full" || v==="thorp");   // 是否给建议
   S.assistCount = (v!=="off");    // 是否替你数牌
   render();
 });
