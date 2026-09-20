@@ -360,6 +360,15 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
 .bethist i.up{background:var(--accent-2)}
 .bethist i.now{outline:1px solid var(--ink-3); outline-offset:1px}
 
+.eqleg{display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:10px; font-size:11.5px; color:var(--ink-2)}
+.eqleg i{display:inline-block; width:14px; height:3px; border-radius:2px; margin-right:6px; vertical-align:middle}
+.eqleg b{font-family:var(--mono); margin-left:6px}
+.eqleg b.up{color:var(--pos)} .eqleg b.dn{color:var(--neg)}
+.eqleg em{font-style:normal; color:var(--neg); font-size:10px; margin-left:5px;
+  background:var(--neg-wash); padding:1px 6px; border-radius:10px}
+.eqleg .eqbase{color:var(--ink-3); margin-left:auto}
+#eqBody svg text{font-family:var(--mono)}
+
 /* log */
 .log{max-height:290px; overflow-y:auto; padding:0}
 .logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
@@ -524,9 +533,9 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
   <div class="topctl">
     <div><div class="lbl" style="margin-bottom:4px">辅助</div>
       <div class="seg" id="assistSeg">
-        <button data-assist="counter" aria-pressed="true">算牌</button>
-        <button data-assist="basic" aria-pressed="false">基本</button>
         <button data-assist="off" aria-pressed="false">关</button>
+        <button data-assist="basic" aria-pressed="false">基本策略</button>
+        <button data-assist="counter" aria-pressed="true">算牌程序</button>
       </div></div>
     <div><div class="lbl" style="margin-bottom:4px">速度</div>
       <div class="seg" id="speedSeg">
@@ -571,6 +580,11 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
         <div class="arow sec" id="actionRow3"></div>
         <div class="hint" id="actionHint"></div>
       </div>
+    </div>
+
+    <div class="panel" id="eqPanel" style="margin-top:14px" hidden>
+      <div class="ph"><h2>资金曲线</h2><span class="lbl" id="eqLbl">—</span></div>
+      <div class="pb" id="eqBody"></div>
     </div>
 
     <div class="panel" style="margin-top:14px">
@@ -862,7 +876,7 @@ function blankStats(){
 }
 function mkSeat(i,kind){
   return {i, kind, name:"", bank:S.buyin, startBank:S.buyin,
-          hands:[], active:0, bet:0, insurance:0, thinking:[], result:null, stopped:false, betHist:[],
+          hands:[], active:0, bet:0, insurance:0, thinking:[], result:null, stopped:false, betHist:[], bankHist:[],
           st:{hands:0, net:0, edgeSum:0, betSum:0}};
 }
 const S={
@@ -968,16 +982,33 @@ function adviseBet(seat){
   }
   const eng=getEV(unseen()), edge=eng.preDeal();
   const kFull=edge/1.26, k=kFull*S.kellyFrac;
-  let bet = k>0 ? seat.bank*k : S.chip;
-  bet=Math.max(S.chip, Math.min(seat.bank, capBet(Math.round(bet/S.chip)*S.chip)));
+
+  /* ① 真正能输的钱 = 本金 − 止损线。设了止损却按全部本金算凯利，等于超额下注。
+        索普第6章注7：「表面资金和实际资金的微妙差别，是众多赌徒和投资人失败的主要原因之一。」*/
+  const floor = S.stopLoss ? seat.startBank*(1-S.stopLoss) : 0;
+  const risk  = Math.max(0, seat.bank - floor);
+
+  /* ② 设了目标就不该押超过「还差多少」——多押的部分只加风险，不加接近目标的速度 */
+  const goal  = S.winTarget ? seat.startBank*(1+S.winTarget) : Infinity;
+  const need  = goal===Infinity ? Infinity : Math.max(S.chip, goal - seat.bank);
+
+  let raw = k>0 ? risk*k : S.chip;
+  const capped = Math.min(raw, need);
+  let bet = Math.max(S.chip, Math.min(seat.bank, capBet(Math.round(capped/S.chip)*S.chip)));
+
   const tc=trueCount();
   const why = edge>0
     ? [`还剩 <b>${eng.n}</b> 张，大牌偏多（真数 <b>+${tc.toFixed(1)}</b>）。`,
        `优势翻到玩家这边：每下注 $100 平均赚 <b>${Math.abs(edge*100).toFixed(0)} 元</b>。`,
-       `凯利：${pct1(edge)} ÷ 1.26 取一半 = 本金的 ${pct1(kFull*S.kellyFrac)} → <b>${money(bet)}</b>。`]
+       floor>0
+         ? `可输的钱只有 <b>${money(risk)}</b>（本金 ${money(seat.bank)} 减去止损线 ${money(floor)}），凯利按这个算，不是按全部本金。`
+         : `凯利基数 = 全部本金 <b>${money(seat.bank)}</b>（没设止损）。`,
+       `${pct1(edge)} ÷ 1.26 × ${S.kellyFrac} = ${pct1(kFull*S.kellyFrac)} → <b>${money(bet)}</b>。`]
     : [`还剩 <b>${eng.n}</b> 张，真数 <b>${tc>=0?"+":"−"}${Math.abs(tc).toFixed(1)}</b>，优势还在庄家那边。`,
        `每下注 $100 平均亏 <b>${Math.abs(edge*100).toFixed(0)} 元</b>，所以只下最小注 <b>${money(S.chip)}</b>。`];
-  return {bet, edge, why};
+  if(capped<raw && need!==Infinity)
+    why.push(`离目标只差 <b>${money(goal-seat.bank)}</b>，所以压到 <b>${money(bet)}</b>——押更多不会更快到，只会多担风险。`);
+  return {bet, edge, why, risk, goal};
 }
 function advisePlay(seat){
   const h=seat.hands[seat.active], eng=engFor(seat);
@@ -1172,6 +1203,7 @@ function settle(){
     S.stats.depth[q].n++; S.stats.depth[q].edge+=S.pending.edge; S.pending=null;
   }
   checkStops();
+  for(const s of live()) s.bankHist.push(s.bank);   // 资金曲线取样
   S.phase="over"; render();
 }
 function pushLog(kind,title,text,delta){
@@ -1391,7 +1423,7 @@ function renderActions(){
   if(S.phase==="bet"||S.phase==="over") sec.unshift(["现在洗牌",()=>{
     newShoe(); for(const x of live()){x.hands=[];x.result=null;} S.phase="bet"; render(); }]);
   if(isLab()&&(S.phase==="bet"||S.phase==="over"))
-    for(const n of [100,500,2000,10000]) sec.push([`快跑 ${n} 手`,()=>runExperiment(n)]);
+    for(const n of [100,500,1000,5000]) sec.push([`快跑 ${n} 手`,()=>runExperiment(n)]);
   const stopped=live().filter(x=>x.stopped);
   if(stopped.length) sec.push([`解除止损（${stopped.map(x=>x.name).join("、")}）`,()=>{
     for(const x of stopped){ x.stopped=false; x.startBank=x.bank; } S.phase="bet"; render(); }]);
@@ -1540,6 +1572,46 @@ function renderCasino(){
     <div class="depth">${rows}</div>
     <p class="plain">提前洗牌能把它按回左边那一档——代价是每小时少打几手，你从<b>不算牌的客人</b>身上赚的也跟着少。</p>`;
 }
+const SEATCOL={counter:"var(--accent)", basic:"var(--ink-3)", human:"#2C6BA8"};
+function renderEquity(){
+  const box=$("eqPanel"), seats=live().filter(s=>s.bankHist.length>1);
+  if(!seats.length){ box.hidden=true; return; }
+  box.hidden=false;
+  const W=600,H=200,PL=58,PR=14,PT=14,PB=26;
+  const n=Math.max(...seats.map(s=>s.bankHist.length));
+  const all=seats.flatMap(s=>s.bankHist).concat([S.buyin]);
+  let lo=Math.min(...all), hi=Math.max(...all);
+  if(hi-lo<1) hi=lo+1;
+  const pad=(hi-lo)*0.08; lo=Math.max(0,lo-pad); hi=hi+pad;
+  const X=i=>PL+(i/Math.max(1,n-1))*(W-PL-PR);
+  const Y=v=>PT+(1-(v-lo)/(hi-lo))*(H-PT-PB);
+  const step=Math.max(1,Math.ceil(n/450));
+  const lines=seats.map(s=>{
+    const pts=[];
+    for(let i=0;i<s.bankHist.length;i+=step) pts.push(X(i).toFixed(1)+","+Y(s.bankHist[i]).toFixed(1));
+    const L2=s.bankHist.length-1;
+    pts.push(X(L2).toFixed(1)+","+Y(s.bankHist[L2]).toFixed(1));
+    const c=SEATCOL[s.kind]||"var(--ink-2)";
+    return `<polyline fill="none" stroke="${c}" stroke-width="1.8" stroke-linejoin="round" points="${pts.join(" ")}"/>`
+      + (s.stopped?`<circle cx="${X(L2).toFixed(1)}" cy="${Y(s.bankHist[L2]).toFixed(1)}" r="4" fill="var(--neg)"/>`:"");
+  }).join("");
+  const ticks=[lo,(lo+hi)/2,hi].map(v=>
+    `<line x1="${PL}" y1="${Y(v).toFixed(1)}" x2="${W-PR}" y2="${Y(v).toFixed(1)}" stroke="var(--rule-soft)" stroke-width="1"/>`
+    +`<text x="${PL-6}" y="${(Y(v)+3.5).toFixed(1)}" text-anchor="end" font-size="9.5" fill="var(--ink-3)">${money(v)}</text>`).join("");
+  const base=`<line x1="${PL}" y1="${Y(S.buyin).toFixed(1)}" x2="${W-PR}" y2="${Y(S.buyin).toFixed(1)}" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 3"/>`;
+  $("eqLbl").textContent=n+" 手";
+  $("eqBody").innerHTML=
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;max-width:100%;height:auto">
+       ${ticks}${base}${lines}
+       <text x="${PL}" y="${H-7}" font-size="9.5" fill="var(--ink-3)">第1手</text>
+       <text x="${W-PR}" y="${H-7}" text-anchor="end" font-size="9.5" fill="var(--ink-3)">第${n}手</text>
+     </svg>
+     <div class="eqleg">${seats.map(s=>{
+       const d=s.bank-s.startBank;
+       return `<span><i style="background:${SEATCOL[s.kind]||"var(--ink-2)"}"></i>${s.name}
+         <b class="${d>=0?"up":"dn"}">${sgn(d)}</b>${s.stopped?`<em>${s.why||"离桌"}</em>`:""}</span>`;
+     }).join("")}<span class="eqbase">虚线 = 起始本金 ${money(S.buyin)}</span></div>`;
+}
 function renderLog(){
   $("log").innerHTML = S.logs.length ? S.logs.map(l=>`
     <div class="logrow ${l.kind}"><div class="lh"><span class="who">${l.title}</span>
@@ -1595,7 +1667,7 @@ function renderRecords(){
 }
 function render(){
   if(S.phase==="setup") return;
-  renderTable(); renderActions(); renderQ(); renderCasino(); renderLog(); renderRecords();
+  renderTable(); renderActions(); renderQ(); renderCasino(); renderEquity(); renderLog(); renderRecords();
 }
 
 /* ---------- 实验：不带动画地快跑 N 手 ---------- */
@@ -1676,6 +1748,7 @@ function settleQuiet(){
     S.stats.depth[q].n++; S.stats.depth[q].edge+=S.pending.edge; S.pending=null;
   }
   checkStops();
+  for(const s of live()) s.bankHist.push(s.bank);   // 资金曲线取样
 }
 const isLab = () => live().length>0 && !live().some(s=>s.kind==="human");
 function runExperiment(n){
