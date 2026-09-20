@@ -534,8 +534,8 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
     <div><div class="lbl" style="margin-bottom:4px">辅助</div>
       <div class="seg" id="assistSeg">
         <button data-assist="off" aria-pressed="false">关</button>
-        <button data-assist="basic" aria-pressed="false">基本策略</button>
-        <button data-assist="counter" aria-pressed="true">算牌程序</button>
+        <button data-assist="count" aria-pressed="false">计数</button>
+        <button data-assist="full" aria-pressed="true">算牌程序</button>
       </div></div>
     <div><div class="lbl" style="margin-bottom:4px">速度</div>
       <div class="seg" id="speedSeg">
@@ -867,6 +867,7 @@ const KIND={
   human  :{n:"真人",         s:"你自己打"},
   counter:{n:"算牌程序",     s:"计数 + 凯利下注 + 按当前牌堆算最优打法"},
   basic  :{n:"基本策略电脑", s:"只打完整牌堆的最优解，平注，不计数"},
+  five   :{n:"算5法（论文原版）", s:"Thorp 1961 正式发表的系统：只数5，四张5出尽才抬注"},
 };
 const SEC_HAND=21, CARDS_PER_HAND=5.4;
 const shuffleSec=()=>18+10*S.decks;
@@ -883,7 +884,7 @@ const S={
   decks:1, penetration:.75, bjPay:1.5, das:true, kellyFrac:.5,
   chip:5, maxBet:0, buyin:10000, stopLoss:0, winTarget:0, busy:false,
   seats:[], dealerHuman:false,
-  assist:true, assistMode:"counter", speedMul:1, animated:new Set(), tick:0,
+  assist:true, assistCount:true, assistMode:"full", speedMul:1, animated:new Set(), tick:0,
   shoe:[], cut:0, seen:new Array(11).fill(0), total:new Array(11).fill(0),
   shoeHash:"", shoeSeq:"",
   phase:"setup", turn:0, dealer:[], holeUp:false, peeked:null,
@@ -972,16 +973,26 @@ function trueCount(){ const u=unseen().reduce((a,b)=>a+b,0); return u>0?runningC
 const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
 /* 真人座位在辅助里应当被当成哪种程序：基本策略档 → basic，算牌档 → counter。
    下注、保险、打法三处必须用同一个，否则会出现「打法按基本策略、下注按算牌」的错配。 */
-const asMode = seat => ({...seat, kind: S.assistMode==="basic" ? "basic" : "counter"});
-const engFor = seat =>
-  (seat.kind==="basic" || (seat.kind==="human" && S.assistMode==="basic"))
-    ? S.basic : getEV(unseen());
+const asMode = seat => ({...seat, kind:"counter"});
+const engFor = seat => {
+  if(seat.kind==="basic") return S.basic;
+  /* 算5法：论文 §3 —— Q(5)≠0 时用完整牌堆策略，Q(5)=0 时才换成当前牌堆的最优解 */
+  if(seat.kind==="five")  return unseen()[5]===0 ? getEV(unseen()) : S.basic;
+  return getEV(unseen());
+};
 
 function adviseBet(seat){
   if(seat.kind==="basic"){
     return {bet:Math.min(seat.bank,S.chip), edge:S.basic.preDeal(), why:[
       `基本策略电脑<b>不计数</b>，永远平注 <b>${money(S.chip)}</b>。`,
       `它长期每下注 $100 亏 <b>${Math.abs(S.basic.preDeal()*100).toFixed(0)} 元</b>——打得完全正确，但没有优势。`]};
+  }
+  /* 算5法：只看「5 还剩几张」。论文 §3 —— Q(5)≠0 押最小注 m，Q(5)=0 才押大注 M。 */
+  if(seat.kind==="five" && unseen()[5]>0){
+    return {bet:Math.min(seat.bank,S.chip), edge:S.basic.preDeal(), why:[
+      `算5法只问一件事：<b>四张 5 出尽了吗？</b>还剩 <b>${unseen()[5]}</b> 张。`,
+      `没出尽 → 按完整牌堆策略打，押最小注 <b>${money(S.chip)}</b>。这是论文 §3 的原文规则。`,
+      `论文也承认它的毛病：Q(5)=0 只在 <b>3.5%–10%</b> 的手里出现，机会很稀。`]};
   }
   const eng=getEV(unseen()), edge=eng.preDeal();
   const kFull=edge/1.26, k=kFull*S.kellyFrac;
@@ -1001,7 +1012,9 @@ function adviseBet(seat){
 
   const tc=trueCount();
   const why = edge>0
-    ? [`还剩 <b>${eng.n}</b> 张，大牌偏多（真数 <b>+${tc.toFixed(1)}</b>）。`,
+    ? [seat.kind==="five"
+         ? `<b>四张 5 全部出尽</b>（Q(5)=0）——论文 Table 1 说这时玩家期望 <b>+3.29%</b>，是全部十种「抽走四张」里最有利的一种。`
+         : `还剩 <b>${eng.n}</b> 张，大牌偏多（真数 <b>+${tc.toFixed(1)}</b>）。`,
        `优势翻到玩家这边：每下注 $100 平均赚 <b>${Math.abs(edge*100).toFixed(0)} 元</b>。`,
        floor>0
          ? `可输的钱只有 <b>${money(risk)}</b>（本金 ${money(seat.bank)} 减去止损线 ${money(floor)}），凯利按这个算，不是按全部本金。`
@@ -1037,6 +1050,10 @@ function advisePlay(seat){
   const why=[`手上 <b>${hand}</b>，庄家明牌 <b>${up}</b>。`];
   if(seat.kind==="basic"){
     why.push(`它按<b>完整牌堆</b>的最优解打，不看已经出过什么牌。`);
+  }else if(seat.kind==="five"){
+    why.push(unseen()[5]===0
+      ? `Q(5)=0，切换到论文 <b>Table 2</b> 那张专用策略表（表头没有「5」，因为庄家不可能亮出 5）。`
+      : `5 还剩 <b>${unseen()[5]}</b> 张，按完整牌堆策略打——论文规定只有 Q(5)=0 才换表。`);
   }else{
     if(total>=12&&total<=16&&u>=2&&u<=6)
       why.push(`庄家被逼做呆牌——他必须要到 17，<b>而我可以停</b>。`);
@@ -1326,9 +1343,11 @@ function renderTable(){
   $("penBar").style.width=Math.min(100,used*100)+"%";
   $("handCount").textContent=`第 ${S.handNo} 手`;
   const ob=$("offBar"); ob.hidden=S.assist;
-  if(!S.assist) ob.innerHTML=`<b>辅助已关</b>　不显示任何建议、计数或期望。程序照常按同一套算法运行，只是不给你看。`;
-  else if(S.assistMode==="basic"){ ob.hidden=false;
-    ob.innerHTML=`<b>辅助：基本策略</b>　给你的建议只用<b>完整牌堆</b>算，不看已经出过什么牌——和「基本策略电脑」同一个大脑。想要算牌级别的建议就切到「算牌」。`; }
+  ob.hidden = (S.assistMode==="full");
+  if(S.assistMode==="off")
+    ob.innerHTML=`<b>辅助已关</b>　计数、期望、建议全部隐藏。程序照常按同一套算法运行，只是不给你看。`;
+  else if(S.assistMode==="count")
+    ob.innerHTML=`<b>只计数</b>　替你数牌、算优势，但<b>不给下注和打法建议</b>——数字给你，决定你自己做。`;
   const lb=$("labBar"); lb.hidden=!isLab();
   if(isLab()) lb.innerHTML=`<b>实验局</b>　全场都是程序，没有真人。可以用下方的「快跑」一次打完上万手，
     直接看长期趋势而不是一两手的运气。`;
@@ -1504,8 +1523,8 @@ function renderRail(phase){
 let QPANEL_HTML=null, qMode=null;
 function renderQ(){
   const panel=$("qPanel");
-  if(QPANEL_HTML===null) QPANEL_HTML=panel.innerHTML;   // 首次渲染前留底，供开关还原
-  if(!S.assist){
+  if(QPANEL_HTML===null) QPANEL_HTML=panel.innerHTML;
+  if(!S.assistCount){
     /* 真人在赌场能看到的只有：已经发出的牌、弃牌堆的厚度。计数是你自己的事。 */
     panel.innerHTML=`<div class="ph"><h2>牌堆</h2><span class="lbl">辅助已关</span></div>
       <div class="stats"><div class="stat"><div class="k">还剩多少张</div>
@@ -1547,7 +1566,7 @@ function renderCasino(){
   const avgEdge = totHands? opp.reduce((a,s)=>a+s.st.edgeSum,0)/totHands : 0;
   const avgBet  = totHands? opp.reduce((a,s)=>a+s.st.betSum,0)/totHands : S.chip;
   const theirHourly = -avgEdge*avgBet*hph*opp.length;
-  $("paceStats").innerHTML=(S.assist?[
+  $("paceStats").innerHTML=(S.assistCount?[
     ["每小时手数", hph.toFixed(0), "洗得越勤，这个越低",""],
     ["他们每小时赢你", money(Math.abs(theirHourly)), `${opp.length} 个座位的理论合计`, theirHourly<0?"neg":"pos"],
     ["你目前净额", sgn(netToYou), `${totHands} 手实际结果`, netToYou>=0?"pos":"neg"],
@@ -1557,7 +1576,7 @@ function renderCasino(){
     ["洗牌", st.shuffles, "你已经洗了这么多次",""],
   ]).map(([k,v,s,c])=>`<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
 
-  if(!S.assist){
+  if(!S.assistCount){
     $("casinoBody").innerHTML=`<p class="plain">辅助已关，只给你<b>已经发生的结果</b>。什么时候洗牌得自己判断——这正是 1960 年代赌场经理的处境。</p>`;
     return;
   }
@@ -1575,7 +1594,7 @@ function renderCasino(){
     <div class="depth">${rows}</div>
     <p class="plain">提前洗牌能把它按回左边那一档——代价是每小时少打几手，你从<b>不算牌的客人</b>身上赚的也跟着少。</p>`;
 }
-const SEATCOL={counter:"var(--accent)", basic:"var(--ink-3)", human:"#2C6BA8"};
+const SEATCOL={counter:"var(--accent)", basic:"var(--ink-3)", human:"#2C6BA8", five:"#9A6B05"};
 function renderEquity(){
   const box=$("eqPanel"), seats=live().filter(s=>s.bankHist.length>1);
   if(!seats.length){ box.hidden=true; return; }
@@ -1822,13 +1841,14 @@ function startMatch(){
   S.stopLoss=+$("cfgStop").value; S.winTarget=+$("cfgWin").value;
   if(S.maxBet && S.maxBet<S.chip) S.maxBet=S.chip*50;
   S.dealerHuman = $("cfgDealer").value==="human";
-  let hn=0, cn=0, bn=0;
+  let hn=0, cn=0, bn=0, fn=0;
   S.seats=[];
   for(let i=0;i<SEATN;i++){
     const k=$("k"+i).value, s=mkSeat(i,k);
     if(k==="human")   s.name = (++hn)===1 ? "你" : "玩家"+hn;
     if(k==="counter") s.name = "算牌"+(++cn>1?cn:"");
     if(k==="basic")   s.name = "基本"+(++bn>1?bn:"");
+    if(k==="five")    s.name = "算5法"+(++fn>1?fn:"");
     s.bet=S.chip; S.seats.push(s);
   }
   if(!live().length){ S.seats[1]=mkSeat(1,"counter"); S.seats[1].name="算牌"; S.seats[1].bet=S.chip; }
@@ -1850,7 +1870,12 @@ function bindSeg(id,attr,fn){
     fn(b.dataset[attr]);
   });
 }
-bindSeg("assistSeg","assist",v=>{ S.assistMode=v; S.assist=(v!=="off"); render(); });
+bindSeg("assistSeg","assist",v=>{
+  S.assistMode=v;
+  S.assist      = (v==="full");   // 是否给建议
+  S.assistCount = (v!=="off");    // 是否替你数牌
+  render();
+});
 bindSeg("speedSeg","speed",v=>{ S.speedMul=+v; });
 $("focusRow").addEventListener("click",e=>{
   const b=e.target.closest("button[data-seat]"); if(!b) return;
