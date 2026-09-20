@@ -1,0 +1,1783 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="一张诚实的21点牌桌，配一台按索普1961年论文现算期望的分析引擎。每个建议都从当前剩余牌堆重新推导，并说明为什么。">
+<meta property="og:title" content="索普21点计算室">
+<meta property="og:description" content="按 Thorp (1961) PNAS 论文现算期望的21点牌桌。算牌程序 vs 基本策略电脑，可实验、可对局。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%83%8F%3C/text%3E%3C/svg%3E">
+<style>
+  /* artifact 平台原本注入的那层 reset，独立部署时自己补上 */
+  :root{
+    color-scheme: light dark;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html{ -webkit-text-size-adjust:100%; }
+  body{ margin:0; font:14px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif; background:#faf9f7; }
+  img{ max-width:100%; }
+  [hidden]{ display:none !important; }
+</style>
+<title>索普21点计算室</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root{
+  --ground:#E9EDEA; --surface:#FDFEFD; --surface-2:#DFE5E0; --surface-3:#F3F6F3;
+  --ink:#101614; --ink-2:#56605A; --ink-3:#818C85;
+  --rule:#C6CEC8; --rule-soft:#DDE3DE;
+  --accent:#00614A; --accent-2:#00876A; --accent-wash:#DCEDE6; --on-accent:#FDFEFD;
+  --pos:#0B6B45; --neg:#A62D1C; --warn:#8A5D00;
+  --pos-wash:#DAEDE2; --neg-wash:#F6DFDB; --warn-wash:#F5E9CE;
+  --card-red:#A62D1C; --card-ink:#141916; --card-face:#FFFFFF; --card-back:#1E4A3C;
+  --shadow:0 1px 2px rgba(16,22,20,.07),0 4px 14px rgba(16,22,20,.06);
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --serif:"Source Serif 4","Songti SC","Noto Serif CJK SC",Georgia,serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0B100E; --surface:#141A17; --surface-2:#1C2420; --surface-3:#121815;
+  --ink:#E4EAE6; --ink-2:#93A09A; --ink-3:#6E7B75;
+  --rule:#27322C; --rule-soft:#1D2521;
+  --accent:#2FD3A5; --accent-2:#45E0B6; --accent-wash:#16302A; --on-accent:#07130F;
+  --pos:#3BCB8E; --neg:#E8705C; --warn:#D9A43C;
+  --pos-wash:#13291F; --neg-wash:#2E1713; --warn-wash:#2B2211;
+  --card-red:#D9503B; --card-ink:#0C100E; --card-face:#E8EDE9; --card-back:#0E2A22;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.34);
+}}
+:root[data-theme="dark"]{
+  --ground:#0B100E; --surface:#141A17; --surface-2:#1C2420; --surface-3:#121815;
+  --ink:#E4EAE6; --ink-2:#93A09A; --ink-3:#6E7B75;
+  --rule:#27322C; --rule-soft:#1D2521;
+  --accent:#2FD3A5; --accent-2:#45E0B6; --accent-wash:#16302A; --on-accent:#07130F;
+  --pos:#3BCB8E; --neg:#E8705C; --warn:#D9A43C;
+  --pos-wash:#13291F; --neg-wash:#2E1713; --warn-wash:#2B2211;
+  --card-red:#D9503B; --card-ink:#0C100E; --card-face:#E8EDE9; --card-back:#0E2A22;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.34);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{margin:0; text-wrap:balance; font-weight:600}
+button{font:inherit; color:inherit}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+/* ---------- shell ---------- */
+.shell{max-width:1320px; margin:0 auto; padding-inline:16px; padding-block:0 40px}
+header.top{
+  display:flex; flex-wrap:wrap; gap:14px 22px; align-items:flex-end; justify-content:space-between;
+  padding-block:22px 16px; border-bottom:1px solid var(--rule); margin-bottom:18px;
+}
+.brand h1{font-family:var(--serif); font-size:25px; letter-spacing:-.01em}
+.brand p{margin:3px 0 0; color:var(--ink-2); font-size:12.5px; max-width:56ch}
+.brand cite{font-style:normal; color:var(--accent); font-weight:500}
+.topctl{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+
+/* ---------- controls ---------- */
+.seg{display:inline-flex; background:var(--surface-2); border-radius:7px; padding:2px; gap:2px}
+.seg button{
+  border:0; background:transparent; padding:6px 11px; border-radius:5px; cursor:pointer;
+  font-size:12.5px; font-weight:500; color:var(--ink-2); white-space:nowrap;
+}
+.seg button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:var(--shadow)}
+.seg button:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.lbl{font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); font-weight:600}
+
+/* ---------- layout ---------- */
+.grid{display:grid; grid-template-columns:minmax(0,1fr) 396px; gap:18px; align-items:start}
+@media (max-width:1040px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+.panel{background:var(--surface); border:1px solid var(--rule-soft); border-radius:11px; box-shadow:var(--shadow)}
+.panel + .panel{margin-top:14px}
+.ph{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:10px 14px; border-bottom:1px solid var(--rule-soft);
+}
+.ph h2{font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2)}
+.pb{padding:14px}
+
+/* ---------- felt ---------- */
+.felt{
+  background:linear-gradient(170deg,var(--surface-3),var(--surface));
+  border:1px solid var(--rule-soft); border-radius:11px; box-shadow:var(--shadow); overflow:hidden;
+}
+.shoebar{
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px;
+  padding:9px 14px; background:var(--surface-2); border-bottom:1px solid var(--rule-soft); font-size:11.5px;
+}
+.shoebar .k{color:var(--ink-3); font-weight:600; letter-spacing:.05em}
+.pen{flex:1 1 130px; min-width:110px; height:5px; border-radius:3px; background:var(--rule); overflow:hidden}
+.pen i{display:block; height:100%; background:var(--accent); transition:width .3s}
+.hash{font-family:var(--mono); font-size:10.5px; color:var(--ink-3); word-break:break-all}
+
+.seats{padding:16px 14px 6px}
+.seat{padding:12px 0}
+.seat + .seat{border-top:1px dashed var(--rule)}
+.seatname{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-bottom:9px}
+.seatname h3{font-family:var(--serif); font-size:16px}
+.tag{
+  font-size:10px; letter-spacing:.07em; text-transform:uppercase; font-weight:600;
+  padding:2px 7px; border-radius:20px; background:var(--surface-2); color:var(--ink-2);
+}
+.tag.you{background:var(--accent-wash); color:var(--accent)}
+.tot{font-family:var(--mono); font-size:13px; color:var(--ink-2); font-variant-numeric:tabular-nums}
+
+.hand{display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start}
+.hbox{padding:8px; border-radius:9px; border:1.5px solid transparent; min-width:0}
+.hbox.active{border-color:var(--accent); background:var(--accent-wash)}
+.hbox.done{opacity:.55}
+.cards{display:flex; gap:5px; flex-wrap:wrap; min-height:62px}
+.hmeta{margin-top:6px; font-size:11.5px; color:var(--ink-2); font-family:var(--mono)}
+.card{
+  width:42px; height:60px; border-radius:5px; background:var(--card-face); color:var(--card-ink);
+  border:1px solid var(--rule); display:flex; flex-direction:column; align-items:center;
+  justify-content:center; line-height:1.05; box-shadow:var(--shadow); flex:none;
+}
+.card b{font-family:var(--mono); font-size:15px; font-weight:600}
+.card span{font-size:13px}
+.card.red{color:var(--card-red)}
+.card.back{
+  background:var(--card-back); border-color:var(--card-back);
+  background-image:repeating-linear-gradient(45deg,transparent 0 4px,rgba(255,255,255,.09) 4px 8px);
+}
+.deal-in{animation:dealin .3s cubic-bezier(.2,.75,.3,1.05) backwards}
+@keyframes dealin{from{opacity:0; transform:translate(26px,-30px) rotate(7deg) scale(.88)}}
+.chipstack{display:flex; align-items:center; margin-top:8px; padding-left:11px; min-height:22px}
+.chip{width:22px; height:22px; border-radius:50%; margin-left:-11px; flex:none;
+  border:2px dashed rgba(255,255,255,.5); box-shadow:0 1px 3px rgba(0,0,0,.28)}
+.chip.c5{background:#7E8582} .chip.c10{background:#2C6BA8} .chip.c25{background:#2C7A52}
+.chip.c100{background:#202622} .chip.c500{background:#7E3C96}
+.chipstack b{margin-left:10px; font-family:var(--mono); font-size:11.5px; color:var(--ink-2); font-weight:600}
+.chip-in{animation:chipin .32s cubic-bezier(.2,.8,.3,1.25) backwards}
+@keyframes chipin{from{opacity:0; transform:translateY(-16px) scale(.65)}}
+@media (prefers-reduced-motion:reduce){
+  .deal-in,.chip-in{animation:none} .pen i{transition:none}
+}
+
+/* ---------- action bar ---------- */
+.actions{padding:12px 14px 16px; border-top:1px solid var(--rule-soft); background:var(--surface-3)}
+.arow{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.btn{
+  border:1px solid var(--rule); background:var(--surface); border-radius:8px;
+  padding:9px 15px; font-size:13.5px; font-weight:500; cursor:pointer; box-shadow:var(--shadow);
+}
+.btn:hover:not(:disabled){border-color:var(--ink-3)}
+.btn:disabled{opacity:.38; cursor:not-allowed; box-shadow:none}
+.btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--on-accent); font-weight:600}
+.btn.pick{position:relative}
+.btn.pick::after{
+  content:"建议"; position:absolute; top:-8px; right:-7px; font-size:9px; font-weight:700;
+  letter-spacing:.05em; background:var(--accent); color:var(--on-accent);
+  padding:1px 5px; border-radius:9px;
+}
+.stake{display:flex; align-items:center; gap:7px; flex-wrap:wrap}
+.stake input{
+  width:96px; font-family:var(--mono); font-size:14px; padding:8px 10px;
+  border:1px solid var(--rule); border-radius:8px; background:var(--surface); color:var(--ink);
+}
+.hint{font-size:12px; color:var(--ink-2); margin-top:9px; line-height:1.5}
+.hint b{color:var(--ink); font-weight:600}
+
+/* ---------- readouts ---------- */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(112px,1fr)); gap:1px; background:var(--rule-soft)}
+.stat{background:var(--surface); padding:10px 12px}
+.stat .k{font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3); font-weight:600}
+.stat .v{font-family:var(--mono); font-size:16px; font-weight:600; margin-top:3px; font-variant-numeric:tabular-nums}
+.stat .s{font-size:10.5px; color:var(--ink-3); line-height:1.4; margin-top:2px}
+.v.pos{color:var(--pos)} .v.neg{color:var(--neg)}
+
+/* Q(I) chart */
+.qchart{display:grid; grid-template-columns:repeat(10,1fr); gap:3px; align-items:end; height:82px; margin-bottom:5px}
+.qcol{display:flex; flex-direction:column; justify-content:flex-end; height:100%; gap:2px}
+.qbar{border-radius:2px 2px 0 0; background:var(--ink-3); min-height:2px; transition:height .25s}
+.qbar.hi{background:var(--pos)} .qbar.lo{background:var(--neg)} .qbar.mid{background:var(--ink-3)}
+.qghost{border-radius:2px 2px 0 0; background:var(--rule); min-height:1px}
+.qlabels{display:grid; grid-template-columns:repeat(10,1fr); gap:3px; text-align:center}
+.qlabels span{font-family:var(--mono); font-size:10.5px; color:var(--ink-2)}
+.qnums{display:grid; grid-template-columns:repeat(10,1fr); gap:3px; text-align:center; margin-top:1px}
+.qnums span{font-family:var(--mono); font-size:9.5px; color:var(--ink-3)}
+.qlegend{display:grid; gap:5px; margin-top:10px; font-size:11px; color:var(--ink-2)}
+.qlegend b{color:var(--ink); font-weight:600}
+.qlegend i{display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px}
+
+/* decision */
+.verdict{
+  display:flex; align-items:center; gap:10px; padding:11px 13px; border-radius:9px;
+  background:var(--accent-wash); border:1px solid var(--accent); margin-bottom:11px; flex-wrap:wrap;
+}
+.verdict .big{font-family:var(--serif); font-size:20px; font-weight:600; color:var(--accent)}
+.verdict .dev{
+  font-size:10px; letter-spacing:.06em; text-transform:uppercase; font-weight:700;
+  background:var(--warn-wash); color:var(--warn); padding:2px 7px; border-radius:20px;
+}
+table.ev{width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:11px}
+table.ev th{
+  text-align:left; font-size:10px; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:600; padding:0 0 5px; border-bottom:1px solid var(--rule-soft);
+}
+table.ev th:last-child,table.ev td:last-child{text-align:right}
+table.ev td{padding:5px 0; border-bottom:1px solid var(--rule-soft); font-family:var(--mono); font-variant-numeric:tabular-nums}
+table.ev td:first-child{font-family:var(--sans)}
+table.ev tr.best td{color:var(--accent); font-weight:600}
+table.ev tr.na td{color:var(--ink-3)}
+.why{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:7px}
+.why li{font-size:12.5px; line-height:1.65; color:var(--ink-2); padding-left:12px; border-left:2px solid var(--rule-soft)}
+.why li b{color:var(--ink); font-weight:600; font-family:var(--mono)}
+.why li.key{border-left-color:var(--accent); color:var(--ink)}
+.cite{
+  margin-top:11px; padding-top:10px; border-top:1px solid var(--rule-soft);
+  font-family:var(--serif); font-size:11.5px; color:var(--ink-3); font-style:italic;
+}
+
+/* casino console */
+.cmp{display:flex; flex-direction:column; gap:1px; background:var(--rule-soft); border-radius:8px; overflow:hidden; margin-bottom:12px}
+.cmprow{display:flex; align-items:baseline; justify-content:space-between; gap:10px; padding:8px 11px; background:var(--surface)}
+.cmprow .n{font-size:12.5px; color:var(--ink-2)}
+.cmprow .n small{display:block; font-size:10.5px; color:var(--ink-3)}
+.cmprow .f{font-family:var(--mono); font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap}
+.cmprow.tot{background:var(--surface-2)}
+.cmprow.tot .f{font-size:16px}
+.depth{display:flex; flex-direction:column; gap:6px; margin-top:4px}
+.drow{display:grid; grid-template-columns:52px 1fr 60px; gap:8px; align-items:center; font-size:11px}
+.drow .dk{font-family:var(--mono); color:var(--ink-3); font-variant-numeric:tabular-nums}
+.dtrack{height:13px; border-radius:3px; background:var(--surface-2); position:relative; overflow:hidden}
+.dtrack i{position:absolute; left:0; top:0; bottom:0; border-radius:3px; background:var(--accent); min-width:2px}
+.dtrack i.neg{background:var(--neg)}
+.drow .dv{font-family:var(--mono); text-align:right; font-variant-numeric:tabular-nums; color:var(--ink-2)}
+.caveat{margin:10px 0 0; font-size:11.5px; line-height:1.6; color:var(--ink-3); padding:8px 10px; background:var(--warn-wash); border-radius:7px; color:var(--warn)}
+
+/* thinking / plain-language readouts */
+.verdict .sub{font-size:12px; color:var(--ink-2)}
+.verdict .sub b{font-family:var(--mono)}
+.muted{margin:0; color:var(--ink-3); font-size:12.5px; line-height:1.6}
+.step{padding:11px 0; border-bottom:1px solid var(--rule-soft)}
+.step:first-child{padding-top:0}
+.step:last-child{border-bottom:0; padding-bottom:0}
+.sh{display:flex; align-items:center; gap:8px; margin-bottom:7px; flex-wrap:wrap}
+.sn{width:19px; height:19px; border-radius:50%; background:var(--accent); color:var(--on-accent);
+    display:grid; place-items:center; font-family:var(--mono); font-size:11px; font-weight:600; flex:none}
+.st{font-weight:600; font-size:13.5px}
+.outcome{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin-top:12px;
+    padding:10px 12px; border-radius:8px; background:var(--surface-2)}
+.outcome span{font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3); font-weight:600}
+.outcome b{font-family:var(--mono); font-size:17px}
+.outcome.w b{color:var(--pos)} .outcome.l b{color:var(--neg)}
+.outcome small{color:var(--ink-3); font-size:11px; flex:1 1 100%; line-height:1.5}
+.plain{margin:0 0 10px; font-size:12.5px; line-height:1.65; color:var(--ink-2)}
+.plain:last-of-type{margin-bottom:0}
+.plain b{color:var(--ink); font-weight:600}
+.tiny{font-size:9.5px; color:var(--ink-3)}
+
+.rights{display:grid; grid-template-columns:repeat(auto-fit,minmax(255px,1fr)); gap:13px}
+.right{background:var(--surface-3); border:1px solid var(--rule-soft); border-radius:10px; padding:14px}
+.right h3{font-family:var(--serif); font-size:16px; margin-bottom:3px}
+.right .when{font-size:11px; color:var(--accent); font-weight:600; margin-bottom:9px}
+.right dl{margin:0}
+.right dt{font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-3); font-weight:700; margin-top:9px}
+.right dt:first-of-type{margin-top:0}
+.right dd{margin:2px 0 0; color:var(--ink-2); font-size:12.5px; line-height:1.6}
+.right dd b{color:var(--ink); font-weight:600}
+.rules + .rules{margin-top:14px}
+
+dl.gloss{margin:0}
+dl.gloss dt{font-family:var(--serif); font-size:14.5px; font-weight:600; color:var(--ink); margin-top:11px}
+dl.gloss dt:first-child{margin-top:0}
+dl.gloss dd{margin:3px 0 0; font-size:12.5px; line-height:1.65; color:var(--ink-2)}
+dl.gloss dd b{color:var(--ink); font-weight:600}
+
+.mini{border:1px solid var(--rule); background:var(--surface-2); border-radius:6px;
+  padding:4px 9px; font-size:11.5px; cursor:pointer; font-weight:500}
+.mini:hover{border-color:var(--ink-3)}
+.mini:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.rec{display:grid; grid-template-columns:1fr auto; gap:2px 10px; padding:10px 14px;
+  border-bottom:1px solid var(--rule-soft); font-size:12px}
+.rec:last-child{border-bottom:0}
+.rec .rt{font-weight:600}
+.rec .rn{font-family:var(--mono); font-weight:600; text-align:right; font-variant-numeric:tabular-nums}
+.rec .rn.up{color:var(--pos)} .rec .rn.dn{color:var(--neg)}
+.rec .rs{grid-column:1/-1; color:var(--ink-3); font-size:11px}
+
+.warnbox{margin-top:16px; padding:12px 14px; border-radius:9px; background:var(--warn-wash);
+  color:var(--warn); font-size:12.5px; line-height:1.65}
+.warnbox b{font-weight:700}
+.tag.stop{background:var(--neg-wash); color:var(--neg)}
+
+.labbar{margin:14px 14px 0; padding:9px 12px; border-radius:8px; background:var(--accent-wash);
+  color:var(--accent); font-size:12px; line-height:1.55}
+.labbar b{font-weight:700; margin-right:6px}
+
+.homeacts{display:flex; gap:10px; flex-wrap:wrap}
+.btn.big{padding:13px 26px; font-size:15px}
+.reccard{padding:13px 15px; border-bottom:1px solid var(--rule-soft)}
+.reccard:last-child{border-bottom:0}
+.reccard.pin{background:var(--accent-wash)}
+.rechead{display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:9px}
+.rtag{font-size:10px; letter-spacing:.06em; font-weight:700; padding:2px 8px; border-radius:20px;
+  background:var(--accent); color:var(--on-accent)}
+.rwhen{font-family:var(--mono); font-size:11.5px; color:var(--ink-2)}
+.rmeta{font-size:11px; color:var(--ink-3); flex:1 1 180px}
+.recbtns{display:flex; gap:6px}
+.mini.danger{color:var(--neg)}
+.mini.danger:hover{border-color:var(--neg)}
+.rsgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:6px 14px}
+.rsrow{display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  padding:5px 9px; background:var(--surface-3); border-radius:6px; font-size:12px}
+.rsrow em{font-style:normal; color:var(--ink-3); font-size:10.5px; margin-left:6px}
+.rsrow b{font-family:var(--mono); font-size:12.5px}
+.rsrow b.up{color:var(--pos)} .rsrow b.dn{color:var(--neg)}
+
+.arow{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.arow + .arow{margin-top:8px}
+.arow.sec{gap:6px; margin-top:10px; padding-top:10px; border-top:1px solid var(--rule-soft)}
+.btn.slot{min-width:104px; justify-content:center; text-align:center}
+.btn.slot.wide{min-width:160px}
+.btn.slot:disabled{opacity:.3}
+.btn.alt{background:var(--surface-2)}
+.btn.mini2{padding:6px 11px; font-size:12px; box-shadow:none; background:var(--surface-2)}
+.insprompt{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;
+  padding:9px 12px; border-radius:8px; background:var(--warn-wash); color:var(--warn); font-size:12.5px}
+.insprompt span{flex:1 1 220px}
+.insprompt b{font-weight:700}
+@media (max-width:520px){ .btn.slot{min-width:calc(50% - 4px); flex:1 1 calc(50% - 4px)} }
+
+.offbar{margin:14px 14px 0; padding:9px 12px; border-radius:8px; background:var(--surface-2);
+  color:var(--ink-2); font-size:12px; line-height:1.55}
+.offbar b{font-weight:700; color:var(--ink); margin-right:6px}
+
+/* log */
+.log{max-height:290px; overflow-y:auto; padding:0}
+.logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
+.logrow:last-child{border-bottom:0}
+.logrow .lh{display:flex; justify-content:space-between; gap:10px; align-items:baseline}
+.logrow .who{font-weight:600; font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-3)}
+.logrow .amt{font-family:var(--mono); font-weight:600}
+.logrow p{margin:3px 0 0; color:var(--ink-2); line-height:1.5}
+.logrow.win .amt{color:var(--pos)} .logrow.lose .amt{color:var(--neg)}
+
+/* rules footer */
+.rules{margin-top:18px; padding:16px; background:var(--surface); border:1px solid var(--rule-soft); border-radius:11px}
+.rules h2{font-family:var(--serif); font-size:15px; margin-bottom:9px}
+.rulegrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:14px}
+.rules ul{margin:0; padding-left:17px; color:var(--ink-2); font-size:12.5px; line-height:1.75}
+.rules code{font-family:var(--mono); font-size:11.5px; background:var(--surface-2); padding:1px 4px; border-radius:3px}
+.opts{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin-top:12px; padding-top:12px; border-top:1px solid var(--rule-soft)}
+.opt{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-2)}
+.opt select{
+  font:inherit; font-size:12px; padding:4px 7px; border-radius:6px;
+  border:1px solid var(--rule); background:var(--surface); color:var(--ink);
+}
+.fine{margin-top:12px; font-size:11.5px; color:var(--ink-3); line-height:1.6}
+.fine a{color:var(--accent)}
+
+/* ---------- 多座位牌桌 ---------- */
+.seats{display:flex; flex-wrap:wrap; gap:12px; padding:14px}
+.seat{flex:1 1 210px; min-width:0; padding:11px; border-radius:10px;
+  background:var(--surface); border:1.5px solid var(--rule-soft); border-top:1.5px solid var(--rule-soft)}
+.seat.acting{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-wash)}
+.seathead{display:flex; align-items:baseline; gap:7px; flex-wrap:wrap; margin-bottom:9px}
+.seathead h3{font-family:var(--serif); font-size:15px}
+.seathead .bank{margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--ink-2)}
+.seathead .bank em{font-style:normal; color:var(--ink-3)}
+.waiting{font-size:12px; color:var(--ink-3); padding:14px 0; font-family:var(--mono)}
+.seatres{margin-top:9px; padding:8px 10px; border-radius:7px; background:var(--surface-2); font-size:11.5px}
+.seatres b{font-family:var(--mono); font-size:14px; display:block}
+.seatres.w b{color:var(--pos)} .seatres.l b{color:var(--neg)}
+.seatres span{color:var(--ink-3); line-height:1.5}
+.dealerbox{padding:14px 14px 0}
+.chip.c1{background:#A8AEAB}
+
+/* ---------- 座位切换 ---------- */
+#focusRow{display:flex; gap:4px; flex-wrap:wrap}
+.fchip{border:1px solid var(--rule); background:var(--surface-2); color:var(--ink-2);
+  border-radius:20px; padding:2px 9px; font-size:11px; cursor:pointer; font-weight:500}
+.fchip.on{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.fchip:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+
+/* ---------- 开局配置 ---------- */
+.setup{position:fixed; inset:0; z-index:50; background:rgba(8,12,10,.62);
+  display:grid; place-items:start center; overflow-y:auto; padding:24px 16px;
+  padding-top:calc(24px + env(safe-area-inset-top,0px));
+  padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+.setupbox{background:var(--surface); border-radius:14px; box-shadow:0 16px 48px rgba(0,0,0,.3);
+  max-width:760px; width:100%; padding:22px; border:1px solid var(--rule-soft)}
+.setupbox h2{font-family:var(--serif); font-size:22px}
+.setupbox .lead{margin:5px 0 18px; color:var(--ink-2); font-size:13px; line-height:1.6}
+.setupbox h3{font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3);
+  font-weight:700; margin:18px 0 9px}
+.seatcfg{display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:10px}
+.scfg{background:var(--surface-3); border:1px solid var(--rule-soft); border-radius:9px; padding:10px}
+.sn2{font-size:11px; color:var(--ink-3); font-weight:600; margin-bottom:6px; line-height:1.4}
+.scfg select{width:100%; font:inherit; font-size:13px; padding:6px 8px; border-radius:7px;
+  border:1px solid var(--rule); background:var(--surface); color:var(--ink)}
+.sd{margin-top:6px; font-size:11px; color:var(--ink-3); line-height:1.5; min-height:30px}
+.fields{display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:10px}
+.field{display:flex; flex-direction:column; gap:4px}
+.field label{font-size:11px; color:var(--ink-3); font-weight:600}
+.field select,.field input{font:inherit; font-size:13px; padding:7px 8px; border-radius:7px;
+  border:1px solid var(--rule); background:var(--surface); color:var(--ink); width:100%}
+.setupfoot{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:20px;
+  padding-top:16px; border-top:1px solid var(--rule-soft)}
+.setupfoot p{margin:0; flex:1 1 200px; font-size:11.5px; color:var(--ink-3); line-height:1.55}
+.rec .rs2{grid-column:1/-1; display:flex; gap:10px; flex-wrap:wrap; margin:2px 0}
+.rseat{font-family:var(--mono); font-size:11px; color:var(--ink-2)}
+.rseat em{font-style:normal; color:var(--ink-3); margin-right:4px}
+</style>
+</head>
+<body>
+<div class="setup" id="setup" hidden>
+  <div class="setupbox">
+    <h2>开一局新的</h2>
+    <p class="lead">选谁坐哪儿、每个筹码多少钱、桌规怎么定。座位 1 最先拿牌也最先行动；最后那个位子俗称<b>三垒</b>，能看到最多别人的牌，是算牌手最想坐的位置。</p>
+
+    <h3>座位</h3>
+    <div class="seatcfg" id="seatCfg"></div>
+
+    <h3>庄家</h3>
+    <div class="fields">
+      <div class="field"><label for="cfgDealer">谁当庄</label>
+        <select id="cfgDealer">
+          <option value="cpu">电脑（按死规则执行）</option>
+          <option value="human">你（你只决定何时洗牌）</option>
+        </select></div>
+    </div>
+
+    <h3>筹码</h3>
+    <div class="fields">
+      <div class="field"><label for="cfgChip">最小下注（也是筹码单位）</label>
+        <select id="cfgChip"><option value="1">$1</option><option value="2">$2</option>
+          <option value="5" selected>$5</option><option value="10">$10</option>
+          <option value="25">$25</option><option value="100">$100</option></select></div>
+      <div class="field"><label for="cfgMax">最大下注</label>
+        <select id="cfgMax"><option value="50">$50（M/m=5）</option><option value="100">$100</option>
+          <option value="500" selected>$500</option><option value="2000">$2,000</option>
+          <option value="10000">$10,000</option></select></div>
+      <div class="field"><label for="cfgStop">止损线</label>
+        <select id="cfgStop"><option value="0">不设</option><option value="0.25">亏掉 25% 本金</option>
+          <option value="0.5" selected>亏掉 50% 本金</option><option value="0.75">亏掉 75% 本金</option></select></div>
+      <div class="field"><label for="cfgBuyin">每人带多少本金</label>
+        <select id="cfgBuyin"><option value="2000">$2,000</option>
+          <option value="10000" selected>$10,000</option><option value="50000">$50,000</option></select></div>
+    </div>
+
+    <h3>桌规</h3>
+    <div class="fields">
+      <div class="field"><label for="cfgDecks">副数</label>
+        <select id="cfgDecks"><option value="1" selected>1（索普原版）</option><option value="2">2</option><option value="6">6</option></select></div>
+      <div class="field"><label for="cfgPen">穿透</label>
+        <select id="cfgPen"><option value="0.5">50%</option><option value="0.75" selected>75%</option><option value="0.9">90%</option></select></div>
+      <div class="field"><label for="cfgBJ">黑杰克赔率</label>
+        <select id="cfgBJ"><option value="1.5" selected>3:2</option><option value="1.2">6:5</option></select></div>
+    </div>
+
+    <div id="penWarn" class="warnbox" hidden></div>
+    <div class="setupfoot">
+      <button class="btn primary" id="btnStart">开局</button>
+      <p>牌靴会重新洗、本金重置。当前这一局会存进「对局记录」。</p>
+    </div>
+  </div>
+</div>
+
+<div class="shell" id="homeView">
+  <header class="top">
+    <div class="brand">
+      <h1>索普21点计算室</h1>
+      <p>一张诚实的牌桌，外加一台按 <cite>Thorp (1961), PNAS 47:110–112</cite> 现算期望的机器。</p>
+    </div>
+  </header>
+  <div class="homeacts">
+    <button class="btn primary big" id="homeNew">开新游戏</button>
+    <button class="btn big" id="homeResume" hidden>继续当前对局</button>
+  </div>
+  <div class="panel" style="margin-top:20px">
+    <div class="ph"><h2>对局记录</h2><span class="lbl" id="recCount">—</span></div>
+    <div id="homeRecords"></div>
+  </div>
+</div>
+
+<div class="shell" id="tableView" hidden>
+<header class="top">
+  <div class="brand">
+    <h1>索普21点计算室</h1>
+    <p>一张诚实的牌桌，外加一台按 <cite>Thorp (1961), PNAS 47:110–112</cite> 现算期望的机器。它不查表——每个决定都从当前剩余牌堆 Q(I) 重新推导。</p>
+  </div>
+  <div class="topctl">
+    <div><div class="lbl" style="margin-bottom:4px">辅助</div>
+      <div class="seg" id="assistSeg">
+        <button data-assist="on" aria-pressed="true">开</button>
+        <button data-assist="off" aria-pressed="false">关</button>
+      </div></div>
+    <div><div class="lbl" style="margin-bottom:4px">速度</div>
+      <div class="seg" id="speedSeg">
+        <button data-speed="2">慢</button>
+        <button data-speed="1" aria-pressed="true">中</button>
+        <button data-speed="0.4">快</button>
+        <button data-speed="0.08">极快</button>
+      </div></div>
+    <div><div class="lbl" style="margin-bottom:4px">对局</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn" id="btnHome">主页</button>
+        <button class="btn" id="btnSetup">重开一局</button>
+      </div></div>
+  </div>
+</header>
+
+<div class="grid">
+  <div>
+    <div class="felt">
+      <div class="shoebar">
+        <span><span class="k">牌靴</span> <span class="num" id="shoeLeft">—</span></span>
+        <span><span class="k">穿透</span> <span class="num" id="penTxt">0%</span></span>
+        <span><span class="k">每靴手数</span> <span class="num" id="hpsTxt">—</span></span>
+        <span class="pen"><i id="penBar" style="width:0%"></i></span>
+        <span><span class="k">承诺</span> <span class="hash" id="shoeHash">—</span></span>
+      </div>
+
+      <div class="labbar" id="labBar" hidden></div>
+      <div class="offbar" id="offBar" hidden></div>
+      <div class="dealerbox">
+        <div class="seathead"><h3>庄家</h3><span class="tag" id="dealerWho">电脑</span>
+          <span class="tot" id="dealerTot"></span></div>
+        <div class="cards" id="dealerCards"></div>
+      </div>
+
+      <div class="seats" id="seats"></div>
+
+      <div class="actions">
+        <div class="insprompt" id="insPrompt" hidden></div>
+        <div class="arow" id="actionRow"></div>
+        <div class="arow" id="actionRow2"></div>
+        <div class="arow sec" id="actionRow3"></div>
+        <div class="hint" id="actionHint"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="ph"><h2>本局手牌</h2><span class="lbl" id="handCount">第 0 手</span></div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><h2>对局记录</h2><button class="mini" id="goHome2">主页看全部</button></div>
+      <div class="log" id="records"></div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="panel">
+      <div class="ph"><h2 id="advisorFor">建议与推导</h2><div id="focusRow"></div></div>
+      <div class="pb" id="advice"></div>
+    </div>
+
+    <div class="panel" id="casinoPanel" hidden>
+      <div class="ph"><h2>赌场控制台</h2><span class="lbl">节奏 vs 漏损</span></div>
+      <div class="stats" id="paceStats"></div>
+      <div class="pb" id="casinoBody"></div>
+    </div>
+
+    <div class="panel" id="qPanel">
+      <div class="ph"><h2>牌堆状态 Q(I)</h2><span class="lbl">未见牌</span></div>
+      <div class="pb">
+        <div class="qchart" id="qchart"></div>
+        <div class="qlabels" id="qlabels"></div>
+        <div class="qnums" id="qnums"></div>
+        <div class="qlegend">
+          <span><i style="background:var(--pos)"></i><b>大牌</b> 10/J/Q/K/A · 剩得越多对玩家越好</span>
+          <span><i style="background:var(--neg)"></i><b>小牌</b> 2–6 · 剩得越多对庄家越好</span>
+          <span><i style="background:var(--ink-3)"></i><b>中性</b> 7–9 · 基本没影响</span>
+          <span><i style="background:var(--rule)"></i>浅色 = 已经发出去了</span>
+        </div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="pb" style="border-top:1px solid var(--rule-soft)">
+        <div class="opts" style="margin:0; padding:0; border:0">
+          <label class="opt">凯利比例
+            <select id="optKelly"><option value="0.5" selected>半凯利</option>
+              <option value="1">全凯利</option><option value="0.25">四分之一</option></select>
+          </label>
+          <button class="btn" id="btnVerify">验证牌序</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="rules">
+  <h2>三个只有玩家有的权利</h2>
+  <p class="plain" style="margin-bottom:14px">庄家一项都没有——他只能要牌到 17。索普整套打法的收益，最后全落在这三件事上。共同规律：<b>它们都想抽到 10 点</b>，所以 10 点密度越高，三个都越值钱。</p>
+  <div class="rights">
+    <div class="right">
+      <h3>加倍</h3>
+      <div class="when">时机：拿到前两张牌时（分牌后也可）</div>
+      <dl>
+        <dt>代价</dt><dd>再押一份等额注，但<b>只能再要一张</b>，然后必须停。</dd>
+        <dt>不算牌时</dt><dd>硬 11 几乎总加倍；硬 10 对庄家 2–9；硬 9 对 3–6；软 13–18 对庄家 4–6。</dd>
+        <dt>计数怎么用</dt><dd>加倍最怕抽到小牌。10 点密度越高，<b>加倍范围越往外扩</b>——高计数时硬 9 对 2、硬 10 对 10 都变成该加倍。低计数则收缩。</dd>
+        <dt>论文证据</dt><dd>Table 2（Q(5)=0，即少了四张 5 的牌堆）里，硬 10 和硬 11 对<b>所有</b>明牌都标了加倍。</dd>
+      </dl>
+    </div>
+    <div class="right">
+      <h3>分牌</h3>
+      <div class="when">时机：前两张点数相同</div>
+      <dl>
+        <dt>代价</dt><dd>再押一份等额注，变成两手牌各自打。</dd>
+        <dt>不算牌时</dt><dd><b>永远分 A 和 8</b>；<b>永远不分 10 和 5</b>（20 已是好牌，一对 5 当硬 10 打更好）。</dd>
+        <dt>计数怎么用</dt><dd>分牌是把一手烂牌换成两手有指望的牌，补到 10 最理想。高计数时 9 对 7、2/3 对 2 这些边缘分牌都变对。</dd>
+        <dt>10 的例外</dt><dd>极高计数对庄家弱明牌时，分 10 会翻成正期望。论文 Table 2 在 Q(5)=0 下就对庄家 <b>6</b> 标了分 10——正常牌桌上这是大忌。</dd>
+      </dl>
+    </div>
+    <div class="right">
+      <h3>保险</h3>
+      <div class="when">时机：庄家明牌是 A</div>
+      <dl>
+        <dt>代价</dt><dd>主注的一半，赔 2:1。跟你自己的手牌<b>完全无关</b>。</dd>
+        <dt>不算牌时</dt><dd>永远不买。完整牌堆 10 点密度 30.8%，期望 −7.7%。</dd>
+        <dt>计数怎么用</dt><dd>三个里<b>最干净的一个</b>：它只赌「暗牌是不是 10」，盈亏平衡线正好在 <b>1/3</b>。密度一过 33.3% 就买，越高越赚，不需要看手牌。</dd>
+        <dt>论文证据</dt><dd>Table 1 脚注：Q(10)=20 时保险单独贡献 <b>+0.32%</b>，Q(10)=24 时 <b>+0.73%</b>。</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div class="rules">
+  <h2>这些词都是什么意思</h2>
+  <div class="rulegrid">
+    <dl class="gloss">
+      <dt>牌靴</dt><dd>装牌的盒子，也指「这一轮洗好的一整副牌」。单副牌时就是那 52 张。荷官从牌靴顶上发，发到切牌位就停下重洗，开新的一靴。</dd>
+      <dt>穿透</dt><dd>这一靴发掉了百分之几。<b>75% 穿透</b>＝52 张里发掉 39 张、留 13 张不发。<b>发得越深，计数越准</b>——所以压低穿透是赌场对付算牌最主要的武器。</dd>
+    </dl>
+    <dl class="gloss">
+      <dt>流水计数</dt><dd>从 0 开始数：每出现一张小牌 2–6 就 <b>+1</b>，每出现一张 10/J/Q/K/A 就 <b>−1</b>，7/8/9 不动。整副牌数完必定回到 0。</dd>
+      <dt>真数</dt><dd><b>流水计数 ÷ 剩余副数</b>。同样是 +4，剩一整副时真数 +4，剩半副时真数 +8，剩四分之一副时真数 +16——牌越少，同样的偏差分量越重。<b>优势大致 ≈ 真数 × 0.5%</b>。</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="rules">
+  <h2>桌规与公平性</h2>
+  <div class="rulegrid">
+    <ul>
+      <li>庄家 <b>软17停牌</b>，必须要到 17 及以上</li>
+      <li>黑杰克赔率开局时选（3:2 或 6:5）；保险赔 2:1</li>
+      <li>任意两张牌可加倍；分牌后可加倍</li>
+      <li>分牌<b>最多一次</b>（2 手），分 A 只补一张</li>
+      <li>座位 1 最先拿牌也最先行动，最后一位是<b>三垒</b></li>
+      <li>不设投降</li>
+      <li>庄家<b>不看暗牌</b>，直到自己的回合才翻开</li>
+      <li>明牌 A 或 10 时只查验是否黑杰克，不得知牌面</li>
+    </ul>
+    <ul>
+      <li>洗牌用 <code>crypto.getRandomValues</code> 的 Fisher–Yates</li>
+      <li>开靴时对牌序做 <b>SHA-256 承诺</b>，洗牌时可验证</li>
+      <li>AI 的决策函数<b>只接收已公开的牌</b>，拿不到牌靴</li>
+      <li>暗牌在庄家回合前不计入 Q(I)</li>
+      <li><b>没有模型、不发任何网络请求</b>——同一副牌堆必定给出同一个决定</li>
+      <li>首张牌明烧，计入已见</li>
+    </ul>
+  </div>
+  
+  <p class="fine">期望按索普自己的简化计算——把剩余牌堆当作「按当前比例的无限副牌」。他在论文里写道，所有关键量几乎线性依赖于牌堆中 10 的<em>比例</em>，而几乎与 10 的绝对<em>数量</em>无关。因此完整牌堆的基准是 −0.57% 而非论文的 −0.21%（后者做了有放回耗牌的精确计算）；但<em>差值</em>——也就是计数真正利用的东西——与论文 Table 1 吻合到 0.5 个百分点内。原文：<a href="https://www.pnas.org/doi/pdf/10.1073/pnas.47.1.110" target="_blank" rel="noopener">PNAS 47(1):110–112</a>。</p>
+</div>
+</div>
+
+<script>
+
+"use strict";
+/* ============================================================
+   1. 牌与牌靴 —— 诚实的随机
+   ============================================================ */
+let CID=0;
+const SUITS=[{s:"♠",r:0},{s:"♥",r:1},{s:"♦",r:1},{s:"♣",r:0}];
+const HILO=[0,-1,1,1,1,1,1,0,0,0,-1]; // index = rank, rank10 含 J/Q/K
+
+function randInt(n){
+  const lim=Math.floor(0x100000000/n)*n, b=new Uint32Array(1);
+  let x; do{ crypto.getRandomValues(b); x=b[0]; }while(x>=lim);
+  return x%n;
+}
+function buildShoe(decks){
+  const out=[];
+  for(let d=0;d<decks;d++) for(const su of SUITS){
+    for(let r=1;r<=9;r++) out.push({r, s:su.s, red:su.r===1, f:r===1?"A":String(r), id:++CID});
+    for(const f of ["10","J","Q","K"]) out.push({r:10, s:su.s, red:su.r===1, f, id:++CID});
+  }
+  return out;
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=randInt(i+1); const t=a[i]; a[i]=a[j]; a[j]=t; } }
+function handValue(cards){
+  let t=0,a=0;
+  for(const c of cards){ t+=c.r; if(c.r===1) a++; }
+  let soft=false;
+  if(a>0 && t+10<=21){ t+=10; soft=true; }
+  return {total:t, soft};
+}
+const isBJ = h => h.length===2 && handValue(h).total===21;
+
+/* ============================================================
+   2. 期望引擎 —— 四层倒推，索普的比例简化
+   ============================================================ */
+const BUSTV=[0,0,0,0,0,1];
+function makeEV(comp, bjPay, das){
+  const n=comp.reduce((a,b)=>a+b,0);
+  const p=new Array(11).fill(0);
+  for(let r=1;r<=10;r++) p[r]= n>0 ? comp[r]/n : 0;
+  const ddM=new Map(), upM=new Map(), bM=new Map();
+
+  function step(t,s,r){
+    if(r===1){ t+=1; if(!s && t+10<=21){ t+=10; s=true; } } else t+=r;
+    if(s && t>21){ t-=10; s=false; }
+    return [t,s];
+  }
+  /* 第1层：庄家终局分布。庄家无选择权，纯递归。 */
+  function dd(t,s){
+    if(t>21) return BUSTV;
+    if(t>=17){ const o=[0,0,0,0,0,0]; o[t-17]=1; return o; }
+    const k=t*2+(s?1:0); const m=ddM.get(k); if(m) return m;
+    const o=[0,0,0,0,0,0];
+    for(let r=1;r<=10;r++){ if(!p[r]) continue;
+      const [t2,s2]=step(t,s,r), sub=dd(t2,s2);
+      for(let i=0;i<6;i++) o[i]+=p[r]*sub[i];
+    }
+    ddM.set(k,o); return o;
+  }
+  /* 给定明牌，排除庄家黑杰克后的分布 */
+  function up(u){
+    const m=upM.get(u); if(m) return m;
+    const excl = u===1?10:(u===10?1:0);
+    const o=[0,0,0,0,0,0]; let z=0;
+    for(let h=1;h<=10;h++){ if(h===excl||!p[h]) continue;
+      z+=p[h];
+      const [t0,s0]=step(0,false,u), [t1,s1]=step(t0,s0,h), sub=dd(t1,s1);
+      for(let i=0;i<6;i++) o[i]+=p[h]*sub[i];
+    }
+    const res = z>0 ? o.map(x=>x/z) : o;
+    upM.set(u,res); return res;
+  }
+  /* 第2层：停牌期望 */
+  function evStand(t,u){
+    if(t>21) return -1;
+    const d=up(u); let ev=d[5];
+    for(let i=0;i<5;i++){ const dt=17+i; ev += d[i]*(t>dt?1:(t<dt?-1:0)); }
+    return ev;
+  }
+  /* 第3层：最优（停或要）——倒推 */
+  function best(t,s,u){
+    if(t>21) return -1;
+    if(t>=21) return evStand(t,u);
+    const k=((t*2+(s?1:0))<<4)|u; const m=bM.get(k); if(m!==undefined) return m;
+    let hit=0;
+    for(let r=1;r<=10;r++){ if(!p[r]) continue; const [t2,s2]=step(t,s,r); hit+=p[r]*best(t2,s2,u); }
+    const res=Math.max(evStand(t,u),hit);
+    bM.set(k,res); return res;
+  }
+  function evHit(t,s,u){
+    if(t>=21) return -1;
+    let e=0;
+    for(let r=1;r<=10;r++){ if(!p[r]) continue; const [t2,s2]=step(t,s,r); e+=p[r]*best(t2,s2,u); }
+    return e;
+  }
+  /* 第4层：加倍、分牌 */
+  function evDouble(t,s,u){
+    let e=0;
+    for(let r=1;r<=10;r++){ if(!p[r]) continue; const [t2]=step(t,s,r); e+=p[r]*evStand(t2,u); }
+    return 2*e;
+  }
+  function evSplit(rank,u){
+    let e=0;
+    for(let r=1;r<=10;r++){ if(!p[r]) continue;
+      const [t0,s0]=step(0,false,rank), [t1,s1]=step(t0,s0,r);
+      if(rank===1) e+=p[r]*evStand(t1,u);
+      else { let b=best(t1,s1,u); if(das) b=Math.max(b,evDouble(t1,s1,u)); e+=p[r]*b; }
+    }
+    return 2*e;
+  }
+  /* 发牌前的整体期望 —— 凯利用这个 */
+  let pre=null;
+  function preDeal(){
+    if(pre!==null) return pre;
+    let ev=0;
+    for(let u=1;u<=10;u++){ if(!p[u]) continue;
+      const pn = u===1?p[10] : (u===10?p[1]:0);
+      for(let a=1;a<=10;a++){ if(!p[a]) continue;
+        for(let b=1;b<=10;b++){ if(!p[b]) continue;
+          const w=p[u]*p[a]*p[b];
+          if((a===1&&b===10)||(a===10&&b===1)){ ev+=w*bjPay*(1-pn); continue; }
+          const [t0,s0]=step(0,false,a), [t1,s1]=step(t0,s0,b);
+          let x=Math.max(best(t1,s1,u), evDouble(t1,s1,u));
+          if(a===b) x=Math.max(x, evSplit(a,u));
+          ev += w*(pn*(-1)+(1-pn)*x);
+        }
+      }
+    }
+    pre=ev; return ev;
+  }
+  return {p, n, evStand, evHit, evDouble, evSplit, best, preDeal,
+          dealerBust:u=>up(u)[5], tenDensity:()=>p[10], aceDensity:()=>p[1]};
+}
+/* 同一组成只建一次引擎 */
+let evCache={key:"",eng:null};
+function getEV(comp){
+  const key=comp.join(",")+"|"+S.bjPay+"|"+S.das;
+  if(evCache.key===key) return evCache.eng;
+  const eng=makeEV(comp,S.bjPay,S.das);
+  evCache={key,eng}; return eng;
+}
+
+/* ============================================================
+   3. 牌桌状态 —— 座位制
+   ============================================================ */
+const KIND={
+  empty  :{n:"空位",         s:"没人坐"},
+  human  :{n:"真人",         s:"你自己打"},
+  counter:{n:"算牌程序",     s:"计数 + 凯利下注 + 按当前牌堆算最优打法"},
+  basic  :{n:"基本策略电脑", s:"只打完整牌堆的最优解，平注，不计数"},
+};
+const SEC_HAND=21, CARDS_PER_HAND=5.4;
+const shuffleSec=()=>18+10*S.decks;
+
+function blankStats(){
+  return {hands:0, shuffles:0, depth:[0,1,2,3].map(()=>({n:0,edge:0}))};
+}
+function mkSeat(i,kind){
+  return {i, kind, name:"", bank:S.buyin, startBank:S.buyin,
+          hands:[], active:0, bet:0, insurance:0, thinking:[], result:null, stopped:false,
+          st:{hands:0, net:0, edgeSum:0, betSum:0}};
+}
+const S={
+  decks:1, penetration:.75, bjPay:1.5, das:true, kellyFrac:.5,
+  chip:5, maxBet:500, buyin:10000, stopLoss:.5, busy:false,
+  seats:[], dealerHuman:false,
+  assist:true, speedMul:1, animated:new Set(), tick:0,
+  shoe:[], cut:0, seen:new Array(11).fill(0), total:new Array(11).fill(0),
+  shoeHash:"", shoeSeq:"",
+  phase:"setup", turn:0, dealer:[], holeUp:false, peeked:null,
+  handNo:0, logs:[], records:[], view:"home", basic:null, stats:blankStats(), pending:null,
+};
+const $=id=>document.getElementById(id);
+const sp = ms => Math.max(30, Math.round(ms*S.speedMul));
+const live = () => S.seats.filter(s=>s.kind!=="empty");
+const inPlay = () => live().filter(s=>!s.stopped);
+function checkStops(){
+  if(!S.stopLoss) return;
+  for(const s of live()){
+    if(!s.stopped && s.bank <= s.startBank*(1-S.stopLoss)){
+      s.stopped=true;
+      pushLog("lose", `${s.name} 触及止损`,
+        `亏掉本金的 ${Math.round(S.stopLoss*100)}%（${money(s.startBank-s.bank)}），离桌。`
+        +(s.kind==="human"?" 你可以在下方解除止损继续，但那正是索普反复警告的事。":""));
+    }
+  }
+}
+const humanSeats = () => S.seats.filter(s=>s.kind==="human");
+const pct=x=>(x>=0?"+":"−")+(Math.abs(x)*100).toFixed(2)+"%";
+const pct1=x=>(Math.abs(x)*100).toFixed(1)+"%";
+const money=x=>"$"+Math.round(x).toLocaleString("en-US");
+const per100=ev=>(ev>=0?"+":"−")+"$"+Math.abs(ev*100).toFixed(0);
+const sgn=x=>(x>=0?"+":"−")+money(Math.abs(x));
+
+/* ---------- 牌靴 ---------- */
+function newShoe(){
+  if(S.stats.shuffles>0){
+    const used=1-S.shoe.length/(S.decks*52);
+    S.stats.lastPen=used;
+  }
+  S.stats.shuffles++;
+  S.animated=new Set();
+  S.shoe=buildShoe(S.decks); shuffle(S.shoe);
+  const nSeat=Math.max(1, S.seats.filter(x=>x.kind!=="empty").length);
+  const reserve=8+5*nSeat;              // 整桌一手最坏消耗，含分牌与补牌
+  S.cut=Math.max(reserve, Math.floor(S.shoe.length*(1-S.penetration)));
+  S.seen=new Array(11).fill(0);
+  S.total=new Array(11).fill(0);
+  for(let r=1;r<=9;r++) S.total[r]=4*S.decks;
+  S.total[10]=16*S.decks;
+  S.shoeSeq=S.shoe.map(c=>c.f+c.s).join(" ");
+  commit(S.shoeSeq);
+  const burn=S.shoe.pop(); S.seen[burn.r]++;      // 明烧一张，计入已见
+  evCache={key:"",eng:null};
+  S.basic=makeEV(S.total.slice(),S.bjPay,S.das);
+  pushLog("system","新牌靴",`洗好 ${S.shoe.length+1} 张，明烧 ${burn.f}${burn.s}。切牌位留 ${S.cut} 张。`);
+}
+async function commit(seq){
+  try{
+    const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(seq));
+    S.shoeHash=[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+  }catch(e){ S.shoeHash="(此环境不可用)"; }
+  const el=$("shoeHash"); if(el) el.textContent=S.shoeHash.slice(0,20)+"…";
+}
+function unseen(){
+  const u=new Array(11).fill(0);
+  for(let r=1;r<=10;r++) u[r]=S.total[r]-S.seen[r];
+  return u;
+}
+function draw(expose=true){
+  if(S.shoe.length===0) newShoe();
+  const c=S.shoe.pop(); c.t=++S.tick;
+  if(expose){ S.seen[c.r]++; evCache={key:"",eng:null}; }
+  return c;
+}
+function exposeCard(c){ S.seen[c.r]++; evCache={key:"",eng:null}; }
+function runningCount(){ let r=0; for(let i=1;i<=10;i++) r+=HILO[i]*S.seen[i]; return r; }
+function trueCount(){ const u=unseen().reduce((a,b)=>a+b,0); return u>0?runningCount()/(u/52):0; }
+
+/* ============================================================
+   4. 建议 —— counter 用当前牌堆，basic 用完整牌堆
+   ============================================================ */
+const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
+const engFor = seat => seat.kind==="basic" ? S.basic : getEV(unseen());
+
+function adviseBet(seat){
+  if(seat.kind==="basic"){
+    return {bet:Math.min(seat.bank,S.chip), edge:S.basic.preDeal(), why:[
+      `基本策略电脑<b>不计数</b>，永远平注 <b>${money(S.chip)}</b>。`,
+      `它长期每下注 $100 亏 <b>${Math.abs(S.basic.preDeal()*100).toFixed(0)} 元</b>——打得完全正确，但没有优势。`]};
+  }
+  const eng=getEV(unseen()), edge=eng.preDeal();
+  const kFull=edge/1.26, k=kFull*S.kellyFrac;
+  let bet = k>0 ? seat.bank*k : S.chip;
+  bet=Math.max(S.chip, Math.min(S.maxBet, Math.min(seat.bank, Math.round(bet/S.chip)*S.chip)));
+  const tc=trueCount();
+  const why = edge>0
+    ? [`还剩 <b>${eng.n}</b> 张，大牌偏多（真数 <b>+${tc.toFixed(1)}</b>）。`,
+       `优势翻到玩家这边：每下注 $100 平均赚 <b>${Math.abs(edge*100).toFixed(0)} 元</b>。`,
+       `凯利：${pct1(edge)} ÷ 1.26 取一半 = 本金的 ${pct1(kFull*S.kellyFrac)} → <b>${money(bet)}</b>。`]
+    : [`还剩 <b>${eng.n}</b> 张，真数 <b>${tc>=0?"+":"−"}${Math.abs(tc).toFixed(1)}</b>，优势还在庄家那边。`,
+       `每下注 $100 平均亏 <b>${Math.abs(edge*100).toFixed(0)} 元</b>，所以只下最小注 <b>${money(S.chip)}</b>。`];
+  return {bet, edge, why};
+}
+function advisePlay(seat){
+  const h=seat.hands[seat.active], eng=engFor(seat);
+  const {total,soft}=handValue(h.cards), u=S.dealer[0].r;
+  const first=h.cards.length===2 && !h.doubled;
+  const canD=first && !h.splitAce && seat.bank>=h.bet;
+  const canS=first && !seat.hands.some(x=>x.fromSplit) && h.cards[0].r===h.cards[1].r && seat.bank>=h.bet;
+  const legal=[
+    {a:"stand", ev:eng.evStand(total,u), ok:true},
+    {a:"hit",   ev:eng.evHit(total,soft,u), ok:total<21},
+    {a:"double",ev:canD?eng.evDouble(total,soft,u):0, ok:canD},
+    {a:"split", ev:canS?eng.evSplit(h.cards[0].r,u):0, ok:canS},
+  ].filter(o=>o.ok).sort((x,y)=>y.ev-x.ev);
+  const pick=legal[0], runner=legal[1];
+  const bs=[
+    {a:"stand", ev:S.basic.evStand(total,u), ok:true},
+    {a:"hit",   ev:S.basic.evHit(total,soft,u), ok:total<21},
+    {a:"double",ev:canD?S.basic.evDouble(total,soft,u):0, ok:canD},
+    {a:"split", ev:canS?S.basic.evSplit(h.cards[0].r,u):0, ok:canS},
+  ].filter(o=>o.ok).sort((x,y)=>y.ev-x.ev);
+  const deviates = seat.kind!=="basic" && bs[0].a!==pick.a;
+  const hand=`${soft?"软":"硬"}${total}`, up=u===1?"A":u;
+  const why=[`手上 <b>${hand}</b>，庄家明牌 <b>${up}</b>。`];
+  if(seat.kind==="basic"){
+    why.push(`它按<b>完整牌堆</b>的最优解打，不看已经出过什么牌。`);
+  }else{
+    if(total>=12&&total<=16&&u>=2&&u<=6)
+      why.push(`庄家被逼做呆牌——他必须要到 17，<b>而我可以停</b>。`);
+    why.push(`剩下的牌里 10 点占 <b>${pct1(eng.tenDensity())}</b>（正常 ${pct1(S.basic.tenDensity())}），庄家 ${up} 爆牌率 <b>${pct1(eng.dealerBust(u))}</b>。`);
+  }
+  if(runner) why.push(`${ACT[pick.a]} 每 $100 是 <b>${per100(pick.ev)}</b>，次选 ${ACT[runner.a]} 是 ${per100(runner.ev)}。`);
+  if(deviates) why.push(`完整牌堆下本该 <b>${ACT[bs[0].a]}</b>——是当前牌堆组成把 ${ACT[pick.a]} 顶了上来。`);
+  return {legal, pick, deviates, why, hand, up};
+}
+function adviseInsurance(seat){
+  if(seat.kind==="basic") return {take:false, ev:3*S.basic.tenDensity()-1, why:[
+    `基本策略电脑<b>永远不买保险</b>——不计数的人买保险长期必亏。`]};
+  const eng=getEV(unseen()), d=eng.tenDensity(), ev=3*d-1;
+  return {take:ev>0, ev, why:[
+    `保险只赌「暗牌是不是 10」，赔 2:1，所以<b>10 点占比过 1/3 就划算</b>。`,
+    `现在 10 点占 <b>${pct1(d)}</b>，${d>1/3?"已越过":"还没到"} 33.3%。`,
+    `每 $100 保险 <b>${per100(ev)}</b> → <b>${ev>0?"买":"不买"}</b>。`]};
+}
+
+/* ============================================================
+   5. 一局的流程
+   ============================================================ */
+function startRound(){
+  S.handNo++; S.holeUp=false; S.peeked=null; S.dealer=[];
+  S.pending={edge:getEV(unseen()).preDeal(), depth:1-S.shoe.length/(S.decks*52)};
+  S.stats.hands++;
+  for(const s of inPlay()){
+    s.hands=[{cards:[], bet:s.bet, doubled:false, done:false, fromSplit:false, splitAce:false}];
+    s.active=0; s.insurance=0; s.result=null;
+    s.bank-=s.bet;
+  }
+  S.phase="deal"; render();
+  /* 真实发牌顺序：从庄家左手起每人一张，庄家一张；再来第二轮 */
+  const order=[];
+  for(const s of inPlay()) order.push(()=>s.hands[0].cards.push(draw()));
+  order.push(()=>S.dealer.push(draw()));
+  for(const s of inPlay()) order.push(()=>s.hands[0].cards.push(draw()));
+  order.push(()=>S.dealer.push(draw(false)));
+  let i=0;
+  const step=()=>{
+    if(i<order.length){ order[i++](); render(); setTimeout(step, sp(170)); }
+    else setTimeout(afterDeal, sp(250));
+  };
+  step();
+}
+function afterDeal(){
+  if(S.dealer[0].r===1){ S.phase="insurance"; S.turn=0; render(); return resolveInsurance(); }
+  peekAndGo();
+}
+function resolveInsurance(){
+  /* 电脑座位自动决定；轮到真人时停下等按钮 */
+  for(const s of inPlay()){
+    if(s.insurance!==undefined && s.insDone) continue;
+    if(s.kind==="human"){ S.turn=s.i; render(); return; }
+    const a=adviseInsurance(s);
+    s.thinking.push({t:`保险：${a.take?"买":"不买"}`, why:a.why});
+    if(a.take){ const half=Math.floor(s.hands[0].bet/2); s.insurance=half; s.bank-=half; }
+    s.insDone=true;
+  }
+  setTimeout(peekAndGo, sp(500));
+}
+function peekAndGo(){
+  for(const s of live()) s.insDone=false;
+  if(!inPlay().length){ S.phase="over"; return render(); }
+  const u=S.dealer[0].r;
+  if(u===1||u===10) S.peeked = isBJ(S.dealer) ? "bj" : "no";
+  if(S.peeked==="bj"){ revealHole(); return settle(); }
+  S.phase="play"; S.turn=-1; render();
+  setTimeout(advance, sp(400));
+}
+function revealHole(){ if(!S.holeUp){ S.holeUp=true; exposeCard(S.dealer[1]); } }
+
+function curSeat(){ return S.turn>=0 ? S.seats[S.turn] : null; }
+function advance(){
+  /* 找下一个还有牌要打的座位／手牌 */
+  let t = S.turn<0 ? 0 : S.turn;
+  while(t<S.seats.length){
+    const s=S.seats[t];
+    if(s.kind!=="empty" && !s.stopped && s.hands.length){
+      if(s.hands.length===1 && isBJ(s.hands[0].cards)) s.hands[0].done=true;  // 自然黑杰克不行动
+      while(s.active<s.hands.length && s.hands[s.active].done) s.active++;
+      if(s.active<s.hands.length){ S.turn=t; render(); return tick(); }
+    }
+    t++;
+  }
+  S.turn=-1; dealerTurn();
+}
+function tick(){
+  const s=curSeat(); if(!s) return;
+  if(s.kind==="human"){ render(); return; }
+  setTimeout(()=>{
+    if(S.phase!=="play") return;
+    const a=advisePlay(s);
+    s.thinking.push({t:`${a.hand} 对 ${a.up} → ${ACT[a.pick.a]}`, why:a.why, dev:a.deviates});
+    act(a.pick.a);
+  }, sp(750));
+}
+function act(a){
+  const s=curSeat(); if(!s) return;
+  const h=s.hands[s.active];
+  if(a==="hit"){
+    h.cards.push(draw());
+    if(handValue(h.cards).total>21){ h.done=true; h.busted=true; render(); return setTimeout(advance,sp(450)); }
+    render(); return tick();
+  }
+  if(a==="stand"){ h.done=true; render(); return setTimeout(advance,sp(300)); }
+  if(a==="double"){
+    s.bank-=h.bet; h.bet*=2; h.doubled=true;
+    h.cards.push(draw());
+    if(handValue(h.cards).total>21) h.busted=true;
+    h.done=true; render(); return setTimeout(advance,sp(550));
+  }
+  if(a==="split"){
+    const moved=h.cards.pop(), ace=h.cards[0].r===1;
+    s.bank-=h.bet;
+    const nh={cards:[moved],bet:h.bet,doubled:false,done:false,fromSplit:true,splitAce:ace};
+    h.fromSplit=true; h.splitAce=ace;
+    h.cards.push(draw()); nh.cards.push(draw());
+    s.hands.push(nh);
+    if(ace){ h.done=true; nh.done=true; render(); return setTimeout(advance,sp(550)); }
+    render(); return tick();
+  }
+}
+function dealerTurn(){
+  S.phase="dealer"; revealHole(); render();
+  const anyLive = inPlay().some(s=>s.hands.some(h=>!h.busted));
+  if(!anyLive) return setTimeout(settle, sp(600));
+  const step=()=>{
+    if(handValue(S.dealer).total<17){ S.dealer.push(draw()); render(); setTimeout(step, sp(500)); }
+    else setTimeout(settle, sp(400));
+  };
+  setTimeout(step, sp(500));
+}
+function settle(){
+  const dv=handValue(S.dealer), dBJ=isBJ(S.dealer);
+  for(const s of inPlay()){
+    let net=0, parts=[];
+    if(s.insurance>0){
+      if(dBJ){ net+=s.insurance*3; parts.push(`保险 +${money(s.insurance*2)}`); }
+      else parts.push(`保险 −${money(s.insurance)}`);
+    }
+    for(const h of s.hands){
+      const hv=handValue(h.cards), pBJ=isBJ(h.cards)&&!h.fromSplit;
+      let r;
+      if(pBJ&&!dBJ){ r=h.bet*(1+S.bjPay); parts.push(`黑杰克 +${money(h.bet*S.bjPay)}`); }
+      else if(pBJ&&dBJ){ r=h.bet; parts.push("双黑杰克 和"); }
+      else if(h.busted){ r=0; parts.push(`${hv.total} 爆 −${money(h.bet)}`); }
+      else if(dBJ){ r=0; parts.push(`庄家黑杰克 −${money(h.bet)}`); }
+      else if(dv.total>21){ r=h.bet*2; parts.push(`庄家 ${dv.total} 爆 +${money(h.bet)}`); }
+      else if(hv.total>dv.total){ r=h.bet*2; parts.push(`${hv.total} 胜 ${dv.total} +${money(h.bet)}`); }
+      else if(hv.total<dv.total){ r=0; parts.push(`${hv.total} 负 ${dv.total} −${money(h.bet)}`); }
+      else { r=h.bet; parts.push(`${hv.total} 和`); }
+      net+=r;
+    }
+    const staked=s.hands.reduce((a,h)=>a+h.bet,0)+s.insurance;
+    const delta=net-staked;
+    s.bank+=net;
+    s.result={delta, parts:parts.join("｜")};
+    s.st.hands++; s.st.net+=delta; s.st.betSum+=staked;
+    if(S.pending) s.st.edgeSum += (s.kind==="basic"? S.basic.preDeal() : S.pending.edge);
+    pushLog(delta>0?"win":delta<0?"lose":"push",
+      `第 ${S.handNo} 手 · ${s.name}`, parts.join("｜"), delta);
+  }
+  if(S.pending){
+    const q=Math.min(3,Math.floor(S.pending.depth*4));
+    S.stats.depth[q].n++; S.stats.depth[q].edge+=S.pending.edge; S.pending=null;
+  }
+  checkStops();
+  S.phase="over"; render();
+}
+function pushLog(kind,title,text,delta){
+  S.logs.unshift({kind,title,text,delta});
+  if(S.logs.length>40) S.logs.pop();
+}
+
+/* ============================================================
+   6. 对局存档
+   ============================================================ */
+const LS_KEY="thorp21.records";
+function loadRecords(){
+  try{ const v=JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(v)?v:[]; }
+  catch(e){ return []; }
+}
+function saveRecords(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(S.records.slice(0,20))); }catch(e){} }
+function archiveMatch(){
+  if(S.handNo<1) return;
+  S.records.unshift({id:"m"+Date.now()+Math.random().toString(36).slice(2,6), pinned:false,
+    t:Date.now(), hands:S.handNo, decks:S.decks,
+    pen:Math.round(S.penetration*100), bj:S.bjPay, chip:S.chip,
+    shuffles:S.stats.shuffles, dealerHuman:S.dealerHuman,
+    seats:live().map(s=>({kind:s.kind, name:s.name, net:s.bank-s.startBank, hands:s.st.hands}))});
+  const keep=S.records.filter(r=>r.pinned), rest=S.records.filter(r=>!r.pinned).slice(0,20);
+  S.records=[...keep,...rest]; saveRecords();
+}
+
+/* ============================================================
+   7. 渲染
+   ============================================================ */
+function cardEl(c,hidden){
+  const d=document.createElement("div");
+  d.className="card"+(hidden?" back":(c.red?" red":""));
+  if(!hidden) d.innerHTML=`<b>${c.f}</b><span>${c.s}</span>`;
+  return d;
+}
+function freshCard(c,hidden,q){
+  const key=c.id+(hidden?"h":"v"), el=cardEl(c,hidden);
+  if(!S.animated.has(key)){ S.animated.add(key); el.classList.add("deal-in"); q.push({el,t:c.t||0}); }
+  return el;
+}
+const CHIPC={500:"c500",100:"c100",25:"c25",10:"c10",5:"c5",1:"c1"};
+function chipsEl(amount,prefix){
+  const w=document.createElement("div"); w.className="chipstack";
+  let rest=amount; const list=[];
+  for(const d of [500,100,25,10,5,1]) while(rest>=d && list.length<7){ list.push(d); rest-=d; }
+  list.forEach((d,i)=>{
+    const c=document.createElement("i"); c.className="chip "+(CHIPC[d]||"c1");
+    const key=`chip:${prefix}:${i}`;
+    if(!S.animated.has(key)){ S.animated.add(key); c.classList.add("chip-in"); c.style.animationDelay=sp(i*70)+"ms"; }
+    w.appendChild(c);
+  });
+  const b=document.createElement("b"); b.textContent=money(amount); w.appendChild(b);
+  return w;
+}
+function renderTable(){
+  const q=[];
+  const dc=$("dealerCards"); dc.innerHTML="";
+  S.dealer.forEach((c,i)=>dc.appendChild(freshCard(c, i===1 && !S.holeUp, q)));
+  const dv=handValue(S.dealer);
+  $("dealerTot").textContent = !S.dealer.length ? ""
+    : S.holeUp ? `${dv.soft?"软":"硬"}${dv.total}${dv.total>21?"（爆）":""}`
+    : `明牌 ${S.dealer[0].r===1?"A":S.dealer[0].r}`+(S.peeked==="no"?" · 已查验：无黑杰克":"");
+  $("dealerWho").textContent = S.dealerHuman ? "你" : "电脑";
+  $("dealerWho").className = "tag"+(S.dealerHuman?" you":"");
+
+  const box=$("seats"); box.innerHTML="";
+  for(const s of S.seats){
+    if(s.kind==="empty") continue;
+    const el=document.createElement("div");
+    el.className="seat"+(S.turn===s.i&&S.phase==="play"?" acting":"");
+    const head=document.createElement("div"); head.className="seathead";
+    head.innerHTML=`<h3>${s.name}</h3>
+      <span class="tag${s.kind==="human"?" you":""}">${KIND[s.kind].n}</span>
+      ${s.stopped?`<span class="tag stop">已止损离桌</span>`:""}
+      <span class="bank">${money(s.bank)} <em>${s.bank>=s.startBank?"+":"−"}${money(Math.abs(s.bank-s.startBank))}</em></span>`;
+    el.appendChild(head);
+    if(!s.hands.length){
+      const p=document.createElement("div"); p.className="waiting";
+      p.textContent = s.stopped ? "已离桌，不再下注"
+        : S.phase==="bet" ? `下注 ${money(s.bet||0)}` : "等下一手";
+      el.appendChild(p);
+    }
+    s.hands.forEach((h,hi)=>{
+      const hb=document.createElement("div");
+      hb.className="hbox"+(S.turn===s.i&&hi===s.active&&S.phase==="play"?" active":"")+(h.done?" done":"");
+      const cw=document.createElement("div"); cw.className="cards";
+      h.cards.forEach(c=>cw.appendChild(freshCard(c,false,q)));
+      hb.appendChild(cw);
+      const v=handValue(h.cards), m=document.createElement("div"); m.className="hmeta";
+      m.textContent=`${v.soft?"软":"硬"}${v.total}${v.total>21?" 爆牌":""}${h.doubled?" · 已加倍":""}${h.splitAce?" · 分A":""}`;
+      hb.appendChild(m);
+      hb.appendChild(chipsEl(h.bet,`${S.handNo}:${s.i}:${hi}`));
+      el.appendChild(hb);
+    });
+    if(s.result && S.phase==="over"){
+      const r=document.createElement("div");
+      r.className="seatres "+(s.result.delta>0?"w":s.result.delta<0?"l":"");
+      r.innerHTML=`<b>${sgn(s.result.delta)}</b><span>${s.result.parts}</span>`;
+      el.appendChild(r);
+    }
+    box.appendChild(el);
+  }
+  q.sort((a,b)=>a.t-b.t).forEach((f,i)=>{ f.el.style.animationDelay=sp(i*90)+"ms"; });
+
+  $("shoeLeft").textContent=`${S.shoe.length} / ${S.decks*52}`;
+  const used=1-S.shoe.length/(S.decks*52);
+  $("penTxt").textContent=Math.round(used*100)+"%";
+  $("penBar").style.width=Math.min(100,used*100)+"%";
+  $("handCount").textContent=`第 ${S.handNo} 手`;
+  const ob=$("offBar"); ob.hidden=S.assist;
+  if(!S.assist) ob.innerHTML=`<b>辅助已关</b>　不显示任何建议、计数或期望。程序照常按同一套算法运行，只是不给你看。`;
+  const lb=$("labBar"); lb.hidden=!isLab();
+  if(isLab()) lb.innerHTML=`<b>实验局</b>　全场都是程序，没有真人。可以用下方的「快跑」一次打完上万手，
+    直接看长期趋势而不是一两手的运气。`;
+  const hps=S.stats.shuffles?S.stats.hands/S.stats.shuffles:0;
+  $("hpsTxt").textContent=hps?hps.toFixed(1):"—";
+  $("hpsTxt").style.color = hps && hps<4.5 ? "var(--neg)" : "";
+}
+function btn(label,fn,cls,badge){
+  const b=document.createElement("button");
+  b.className="btn "+(cls||"")+(badge?" pick":"");
+  b.textContent=label; b.onclick=fn; return b;
+}
+function renderActions(){
+  const row=$("actionRow"), row2=$("actionRow2"), row3=$("actionRow3");
+  const ins=$("insPrompt"), hint=$("actionHint");
+  row.innerHTML=""; row2.innerHTML=""; row3.innerHTML=""; ins.innerHTML=""; hint.innerHTML="";
+  ins.hidden=true;
+  const needShuffle=S.shoe.length<=S.cut;
+  const seat=curSeat();
+  const playing = S.phase==="play" && seat && seat.kind==="human";
+  const adv = (playing && S.assist) ? advisePlay(seat) : null;
+
+  /* ---- 第1排：四个出牌槽，位置永远固定，不可用时置灰而不是消失 ---- */
+  /* 合法动作表：始终要算（决定哪些槽可点），但「哪个最优」只在辅助开启时求 */
+  const legal={};
+  if(playing){
+    const h=seat.hands[seat.active], hv0=handValue(h.cards), u=S.dealer[0].r;
+    const first=h.cards.length===2 && !h.doubled;
+    legal.stand={a:"stand"};
+    if(hv0.total<21) legal.hit={a:"hit"};
+    if(first && !h.splitAce && seat.bank>=h.bet) legal.double={a:"double"};
+    if(first && !seat.hands.some(x=>x.fromSplit) && h.cards[0].r===h.cards[1].r && seat.bank>=h.bet)
+      legal.split={a:"split"};
+  }
+  for(const a of ["stand","hit","double","split"]){
+    const o=legal[a], on=!!o;
+    const pick = on && S.assist && adv.pick.a===a;   // 辅助关闭时一律不标记
+    const b=document.createElement("button");
+    b.className="btn slot"+(pick?" primary pick":"")+(on&&S.assist&&!pick?" alt":"");
+    b.textContent=ACT[a];
+    if(on) b.onclick=()=>act(a); else b.disabled=true;
+    row.appendChild(b);
+  }
+
+  /* ---- 第2排：下注框 + 主操作，也固定 ---- */
+  const stake=document.createElement("div"); stake.className="stake";
+  const inp=document.createElement("input");
+  inp.type="number"; inp.id="betInput"; inp.min=S.chip; inp.max=S.maxBet; inp.step=S.chip;
+  const me=inPlay().find(x=>x.kind==="human");
+  inp.value = me ? (me.bet||S.chip) : S.chip;
+  inp.disabled = !(S.phase==="bet" && me);
+  if(me) inp.oninput=()=>{ me.bet=Math.max(S.chip,Math.min(S.maxBet,Math.min(me.bank,+inp.value||S.chip))); };
+  stake.append(document.createTextNode("下注 $"), inp);
+  row2.appendChild(stake);
+
+  const main=document.createElement("button"); main.className="btn slot wide";
+  if(S.phase==="bet"){
+    if(!inPlay().length){ main.textContent="全部离桌"; main.disabled=true; }
+    else{
+      main.textContent = needShuffle?"洗牌并发牌":"发牌"; main.classList.add("primary");
+      main.onclick=()=>{
+        if(needShuffle) newShoe();
+        for(const x of inPlay()){
+          if(x.kind!=="human"){ const b=adviseBet(x); x.bet=Math.min(x.bank,b.bet); x.thinking=[{t:`下注 ${money(x.bet)}`,why:b.why}]; }
+          else x.thinking=[];
+          x.bet=Math.max(S.chip,Math.min(S.maxBet,Math.min(x.bank,x.bet||S.chip)));
+        }
+        startRound();
+      };
+    }
+  }else if(S.phase==="over"){
+    main.textContent = needShuffle?"洗牌并继续":"下一手"; main.classList.add("primary");
+    main.onclick=()=>{ if(needShuffle) newShoe();
+      for(const x of live()){ x.hands=[]; x.result=null; } S.phase="bet"; render(); };
+  }else{ main.textContent = S.phase==="dealer"?"庄家行动中":"进行中"; main.disabled=true; }
+  row2.appendChild(main);
+
+  /* ---- 保险：独立提示条，不占出牌槽，避免和「停牌」抢位置 ---- */
+  if(S.phase==="insurance"){
+    ins.hidden=false;
+    const s2=curSeat();
+    if(s2 && s2.kind==="human"){
+      const half=Math.floor(s2.hands[0].bet/2), a2=S.assist?adviseInsurance(s2):{take:false};
+      ins.innerHTML=`<span>庄家明牌 A —— <b>${s2.name}</b> 要不要买保险？赔 2:1，注码 ${money(half)}</span>`;
+      const y=document.createElement("button"); y.className="btn slot"+(S.assist&&a2.take?" primary pick":"");
+      y.textContent="买保险"; y.onclick=()=>{ s2.insurance=half; s2.bank-=half; s2.insDone=true; resolveInsurance(); };
+      const n=document.createElement("button"); n.className="btn slot"+(S.assist&&!a2.take?" primary pick":"");
+      n.textContent="不买"; n.onclick=()=>{ s2.insDone=true; resolveInsurance(); };
+      ins.append(y,n);
+    }else ins.innerHTML=`<span>庄家明牌 A，正在依次询问保险。</span>`;
+  }
+
+  /* ---- 第3排：次要操作，永远在最下面一排 ---- */
+  const sec=[["主页",()=>showHome()],["重开一局",()=>openSetup()]];
+  if(S.phase==="bet"||S.phase==="over") sec.unshift(["现在洗牌",()=>{
+    newShoe(); for(const x of live()){x.hands=[];x.result=null;} S.phase="bet"; render(); }]);
+  if(isLab()&&(S.phase==="bet"||S.phase==="over"))
+    for(const n of [100,500,2000,10000]) sec.push([`快跑 ${n} 手`,()=>runExperiment(n)]);
+  const stopped=live().filter(x=>x.stopped);
+  if(stopped.length) sec.push([`解除止损（${stopped.map(x=>x.name).join("、")}）`,()=>{
+    for(const x of stopped){ x.stopped=false; x.startBank=x.bank; } S.phase="bet"; render(); }]);
+  const broke=inPlay().filter(x=>x.bank<S.chip);
+  if(broke.length) sec.push([`给 ${broke.map(x=>x.name).join("、")} 补 ${money(S.buyin)}`,()=>{
+    for(const x of broke){ x.bank+=S.buyin; x.startBank+=S.buyin; } render(); }]);
+  for(const [l,f] of sec){ const b=document.createElement("button"); b.className="btn mini2"; b.textContent=l; b.onclick=f; row3.appendChild(b); }
+
+  /* ---- 提示 ---- */
+  if(S.phase==="bet") hint.innerHTML = inPlay().length
+    ? `筹码单位 ${money(S.chip)}，上限 ${money(S.maxBet)}。`+(S.assist&&me?` 建议 <b>${money(adviseBet({...me,kind:"counter"}).bet)}</b>。`:"")
+    : `所有座位都已止损离桌。`;
+  else if(S.phase==="play") hint.innerHTML = seat
+    ? (seat.kind==="human" ? `轮到 <b>${seat.name}</b>。`+(S.assist?` 建议 <b>${ACT[adv.pick.a]}</b>。`:"")
+                           : `<b>${seat.name}</b> 正在打这手牌。`)
+    : "";
+  else if(S.phase==="dealer") hint.innerHTML=`庄家翻开暗牌——<b>从这一刻起他才知道自己的点数</b>，然后要到 17 就停。没有决策。`;
+  else if(S.phase==="deal") hint.innerHTML=`发牌中…`;
+  else if(S.phase==="over") hint.innerHTML = needShuffle
+    ? `发到切牌位了（留 ${S.cut} 张），必须重洗。` : `牌靴还剩 ${S.shoe.length} 张。`;
+
+  renderRail(S.phase);
+}
+const ul=a=>`<ul class="why">${a.map(w=>`<li>${w}</li>`).join("")}</ul>`;
+function renderRail(phase){
+  const head=$("focusRow");
+  const shown=live();
+  head.innerHTML = (S.assist && shown.length>1)
+    ? shown.map(s=>`<button class="fchip${S.focus===s.i?" on":""}" data-seat="${s.i}">${s.name}</button>`).join("")
+    : "";
+  if(!shown.some(s=>s.i===S.focus)) S.focus = shown.length?shown[0].i:0;
+  const s=S.seats[S.focus];
+  const box=$("advice");
+  if(!S.assist){
+    $("advisorFor").textContent="辅助已关";
+    box.innerHTML=`<p class="muted">所有电脑座位照常按同一套算法运行——下注、打法、保险全都在算，只是推导不显示。
+      想看就把右上角的<b>辅助</b>打开。</p>`; return;
+  }
+  if(!s || s.kind==="empty"){ $("advisorFor").textContent="—"; box.innerHTML=`<p class="muted">这个座位没人。</p>`; return; }
+
+  /* 真人座位、且轮到他行动 → 给建议；其余 → 给该座位的思考过程 */
+  if(s.kind==="human" && S.turn===s.i && phase==="play"){
+    const a=advisePlay(s);
+    $("advisorFor").textContent=s.name+" · 怎么打";
+    box.innerHTML=`<div class="verdict"><span class="big">${ACT[a.pick.a]}</span>
+      ${a.deviates?`<span class="dev">偏离基本策略</span>`:""}</div>
+      <table class="ev"><thead><tr><th>动作</th><th>每下注 $100 的平均结果</th></tr></thead><tbody>
+      ${a.legal.map(o=>`<tr class="${o.a===a.pick.a?"best":""}"><td>${ACT[o.a]}</td><td>${per100(o.ev)}</td></tr>`).join("")}
+      </tbody></table>${ul(a.why)}`;
+    return;
+  }
+  if(s.kind==="human" && phase==="bet"){
+    const a=adviseBet({...s,kind:"counter"});
+    $("advisorFor").textContent=s.name+" · 下多少";
+    box.innerHTML=`<div class="verdict"><span class="big">${money(a.bet)}</span>
+      <span class="sub">每 $100 的平均结果 <b style="color:${a.edge>0?"var(--pos)":"var(--neg)"}">${per100(a.edge)}</b></span></div>${ul(a.why)}`;
+    return;
+  }
+  if(s.kind==="human" && phase==="insurance" && S.turn===s.i){
+    const a=adviseInsurance({...s,kind:"counter"});
+    $("advisorFor").textContent=s.name+" · 保险";
+    box.innerHTML=`<div class="verdict"><span class="big">${a.take?"买保险":"不买"}</span>
+      <span class="sub">每 $100 <b style="color:${a.ev>0?"var(--pos)":"var(--neg)"}">${per100(a.ev)}</b></span></div>${ul(a.why)}`;
+    return;
+  }
+  $("advisorFor").textContent = s.name+(phase==="over"?" · 这手怎么想的":" · 正在想");
+  const steps=s.thinking||[];
+  if(!steps.length && !s.result){ box.innerHTML=`<p class="muted">${s.kind==="human"?"这是真人座位，由你自己决定。":"等这一手开始。"}</p>`; return; }
+  box.innerHTML = steps.map((st,i)=>`<div class="step">
+      <div class="sh"><span class="sn">${i+1}</span><span class="st">${st.t}</span>
+      ${st.dev?`<span class="dev">偏离基本策略</span>`:""}</div>${ul(st.why)}</div>`).join("")
+    + (s.result&&phase==="over" ? `<div class="outcome ${s.result.delta>=0?"w":"l"}">
+        <span>结果</span><b>${sgn(s.result.delta)}</b><small>${s.result.parts}</small></div>` : "");
+}
+let QPANEL_HTML=null, qMode=null;
+function renderQ(){
+  const panel=$("qPanel");
+  if(QPANEL_HTML===null) QPANEL_HTML=panel.innerHTML;   // 首次渲染前留底，供开关还原
+  if(!S.assist){
+    /* 真人在赌场能看到的只有：已经发出的牌、弃牌堆的厚度。计数是你自己的事。 */
+    panel.innerHTML=`<div class="ph"><h2>牌堆</h2><span class="lbl">辅助已关</span></div>
+      <div class="stats"><div class="stat"><div class="k">还剩多少张</div>
+        <div class="v">${S.shoe.length}</div><div class="s">看弃牌堆厚度估的，和真人一样</div></div>
+        <div class="stat"><div class="k">这一靴发了</div>
+        <div class="v">${Math.round((1-S.shoe.length/(S.decks*52))*100)}%</div><div class="s">穿透</div></div></div>
+      <div class="pb"><p class="muted">计数、真数、当前优势、保险期望——<b>全部隐藏</b>。
+        辅助关闭时这里不替你数牌。</p></div>`;
+    qMode="off"; return;
+  }
+  if(qMode!=="on"){ panel.innerHTML=QPANEL_HTML; qMode="on"; }   // 只在开关切换时重建，避免柱图闪烁
+  const comp=unseen(), per=S.decks*4;
+  const chart=$("qchart"), labs=$("qlabels"), nums=$("qnums");
+  chart.innerHTML=""; labs.innerHTML=""; nums.innerHTML="";
+  for(let r=1;r<=10;r++){
+    const cap=r===10?S.decks*16:per, col=document.createElement("div"); col.className="qcol";
+    const g=document.createElement("div"); g.className="qghost"; g.style.height=((cap-comp[r])/cap*100)+"%";
+    const b=document.createElement("div");
+    b.className="qbar "+(HILO[r]<0?"hi":HILO[r]>0?"lo":"mid");
+    b.style.height=(comp[r]/cap*100)+"%";
+    col.append(g,b); chart.appendChild(col);
+    const l=document.createElement("span"); l.textContent=r===1?"A":r; labs.appendChild(l);
+    const n=document.createElement("span"); n.textContent=comp[r]; nums.appendChild(n);
+  }
+  const eng=getEV(comp), edge=eng.preDeal(), tc=trueCount();
+  $("stats").innerHTML=[
+    ["还剩多少张", eng.n, "没发出来的牌", ""],
+    ["真数", (tc>=0?"+":"−")+Math.abs(tc).toFixed(1), tc>0?"大牌偏多，利玩家":tc<0?"小牌偏多，利庄家":"和开局差不多", ""],
+    ["现在谁占优", (edge>0?"玩家 ":"庄家 ")+pct1(edge), `每下注 $100 玩家 ${per100(edge)}`, edge>0?"pos":"neg"],
+  ].map(([k,v,s,c])=>`<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
+}
+function renderCasino(){
+  const on=S.dealerHuman; $("casinoPanel").hidden=!on; if(!on) return;
+  const st=S.stats, sh=Math.max(1,st.shuffles), hands=st.hands, sSec=shuffleSec();
+  const hph = hands>0 ? hands/(hands*SEC_HAND+sh*sSec)*3600 : 3600/(SEC_HAND+sSec);
+  const opp=live();
+  const netToYou = -opp.reduce((a,s)=>a+(s.bank-s.startBank),0);
+  const totHands = opp.reduce((a,s)=>a+s.st.hands,0);
+  const avgEdge = totHands? opp.reduce((a,s)=>a+s.st.edgeSum,0)/totHands : 0;
+  const avgBet  = totHands? opp.reduce((a,s)=>a+s.st.betSum,0)/totHands : S.chip;
+  const theirHourly = -avgEdge*avgBet*hph*opp.length;
+  $("paceStats").innerHTML=(S.assist?[
+    ["每小时手数", hph.toFixed(0), "洗得越勤，这个越低",""],
+    ["他们每小时赢你", money(Math.abs(theirHourly)), `${opp.length} 个座位的理论合计`, theirHourly<0?"neg":"pos"],
+    ["你目前净额", sgn(netToYou), `${totHands} 手实际结果`, netToYou>=0?"pos":"neg"],
+  ]:[
+    ["每小时手数", hph.toFixed(0), "洗得越勤，这个越低",""],
+    ["你目前净额", sgn(netToYou), `${totHands} 手实际结果`, netToYou>=0?"pos":"neg"],
+    ["洗牌", st.shuffles, "你已经洗了这么多次",""],
+  ]).map(([k,v,s,c])=>`<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  if(!S.assist){
+    $("casinoBody").innerHTML=`<p class="plain">辅助已关，只给你<b>已经发生的结果</b>。什么时候洗牌得自己判断——这正是 1960 年代赌场经理的处境。</p>`;
+    return;
+  }
+  const max=Math.max(0.004,...st.depth.map(d=>d.n?Math.abs(d.edge/d.n):0));
+  const rows=st.depth.map((d,i)=>{
+    const lab=`${i*25}–${i*25+25}%`;
+    if(!d.n) return `<div class="drow"><span class="dk">${lab}</span><div class="dtrack"></div><span class="dv">还没打到</span></div>`;
+    const e=d.edge/d.n;
+    return `<div class="drow"><span class="dk">${lab}</span>
+      <div class="dtrack"><i class="${e<0?"neg":""}" style="width:${Math.min(100,Math.abs(e)/max*100)}%"></i></div>
+      <span class="dv">${per100(e)}<br><span class="tiny">${d.n} 手</span></span></div>`;
+  }).join("");
+  $("casinoBody").innerHTML=`
+    <p class="plain">牌靴打得越深，算牌座位的优势越大。下面是不同深度上<b>每下注 $100 的平均结果</b>：</p>
+    <div class="depth">${rows}</div>
+    <p class="plain">提前洗牌能把它按回左边那一档——代价是每小时少打几手，你从<b>不算牌的客人</b>身上赚的也跟着少。</p>`;
+}
+function renderLog(){
+  $("log").innerHTML = S.logs.length ? S.logs.map(l=>`
+    <div class="logrow ${l.kind}"><div class="lh"><span class="who">${l.title}</span>
+    ${l.delta!==undefined?`<span class="amt">${sgn(l.delta)}</span>`:""}</div><p>${l.text}</p></div>`).join("")
+    : `<div class="logrow"><p>还没有记录。</p></div>`;
+}
+function showHome(){
+  S.view="home"; $("homeView").hidden=false; $("tableView").hidden=true;
+  $("homeResume").hidden = !(S.seats.length && S.handNo>0);
+  renderHome();
+}
+function showTable(){ S.view="table"; $("homeView").hidden=true; $("tableView").hidden=false; render(); }
+function delRecord(id){ S.records=S.records.filter(r=>r.id!==id); saveRecords(); renderHome(); }
+function pinRecord(id){
+  const r=S.records.find(x=>x.id===id); if(!r) return;
+  r.pinned=!r.pinned; saveRecords(); renderHome();
+}
+function recCard(r){
+  const d=new Date(r.t);
+  const when=`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  const lab=(r.seats.length && r.seats.every(x=>x.kind!=="human"))?"实验局":"对局";
+  const rows=r.seats.map(x=>`<div class="rsrow"><span>${x.name}<em>${KIND[x.kind]?KIND[x.kind].n:x.kind}</em></span>
+    <b class="${x.net>0?"up":x.net<0?"dn":""}">${sgn(x.net)}</b></div>`).join("");
+  return `<div class="reccard${r.pinned?" pin":""}">
+    <div class="rechead"><span class="rtag">${lab}</span><span class="rwhen">${when}</span>
+      <span class="rmeta">${r.hands} 手 · ${r.decks}副 · 穿透${r.pen}% · 筹码${money(r.chip)} · ${r.bj===1.5?"3:2":"6:5"}${r.dealerHuman?" · 你当庄":""}</span>
+      <span class="recbtns">
+        <button class="mini" data-pin="${r.id}">${r.pinned?"取消保留":"保留"}</button>
+        <button class="mini danger" data-del="${r.id}">删除</button>
+      </span></div>
+    <div class="rsgrid">${rows}</div></div>`;
+}
+function renderHome(){
+  const list=[...S.records].sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)||b.t-a.t);
+  const np=list.filter(r=>r.pinned).length;
+  $("recCount").textContent = list.length?`${list.length} 局${np?`　${np} 局已保留`:""}`:"还没有";
+  $("homeRecords").innerHTML = list.length ? list.map(recCard).join("")
+    : `<div class="logrow"><p>还没有记录。开一局，结束时会自动存档。<b>保留</b>过的记录不会被新记录挤掉。</p></div>`;
+}
+function renderRecords(){
+  const el=$("records");
+  if(!S.records.length){
+    el.innerHTML=`<div class="logrow"><p>还没有存档的对局。点「重开一局」会把当前这局存进来。</p></div>`; return;
+  }
+  el.innerHTML=S.records.map(r=>{
+    const d=new Date(r.t);
+    const when=`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    const seats=r.seats.map(s=>`<span class="rseat"><em>${s.name}</em>${sgn(s.net)}</span>`).join("");
+    return `<div class="rec"><span class="rt">${r.hands} 手 · ${r.dealerHuman?"你当庄":"电脑当庄"}</span>
+      <span class="rs2">${seats}</span>
+      <span class="rs">${when} · ${r.decks} 副 · 穿透 ${r.pen}% · 筹码 ${money(r.chip)} · 黑杰克 ${r.bj===1.5?"3:2":"6:5"} · 洗牌 ${r.shuffles} 次</span></div>`;
+  }).join("");
+}
+function render(){
+  if(S.phase==="setup") return;
+  renderTable(); renderActions(); renderQ(); renderCasino(); renderLog(); renderRecords();
+}
+
+/* ---------- 实验：不带动画地快跑 N 手 ---------- */
+function fastRound(){
+  if(S.shoe.length<=S.cut) newShoe();
+  const act=inPlay(); if(!act.length) return false;
+  for(const s of act){
+    const a=adviseBet(s);
+    s.bet=Math.max(S.chip,Math.min(S.maxBet,Math.min(s.bank,a.bet)));
+    s.thinking=[]; s.hands=[{cards:[],bet:s.bet,doubled:false,done:false,fromSplit:false,splitAce:false}];
+    s.active=0; s.insurance=0; s.result=null; s.bank-=s.bet;
+  }
+  S.handNo++; S.stats.hands++; S.holeUp=false; S.peeked=null; S.dealer=[];
+  S.pending={edge:getEV(unseen()).preDeal(), depth:1-S.shoe.length/(S.decks*52)};
+  for(const s of act) s.hands[0].cards.push(draw());
+  S.dealer.push(draw());
+  for(const s of act) s.hands[0].cards.push(draw());
+  S.dealer.push(draw(false));
+  const up=S.dealer[0].r;
+  if(up===1) for(const s of act){
+    const a=adviseInsurance(s);
+    if(a.take){ const h=Math.floor(s.hands[0].bet/2); s.insurance=h; s.bank-=h; }
+  }
+  if(up===1||up===10) S.peeked = isBJ(S.dealer)?"bj":"no";
+  if(S.peeked!=="bj"){
+    for(const s of act){
+      if(isBJ(s.hands[0].cards)){ s.hands[0].done=true; continue; }
+      S.turn=s.i;
+      let guard=0;
+      while(s.active<s.hands.length && guard++<40){
+        const h=s.hands[s.active];
+        if(h.done){ s.active++; continue; }
+        const a=advisePlay(s);
+        if(a.pick.a==="stand"){ h.done=true; s.active++; }
+        else if(a.pick.a==="hit"){
+          h.cards.push(draw());
+          if(handValue(h.cards).total>21){ h.busted=true; h.done=true; s.active++; }
+        }else if(a.pick.a==="double"){
+          s.bank-=h.bet; h.bet*=2; h.doubled=true; h.cards.push(draw());
+          if(handValue(h.cards).total>21) h.busted=true;
+          h.done=true; s.active++;
+        }else{
+          const mv=h.cards.pop(), ace=h.cards[0].r===1;
+          s.bank-=h.bet;
+          const nh={cards:[mv],bet:h.bet,doubled:false,done:false,fromSplit:true,splitAce:ace};
+          h.fromSplit=true; h.splitAce=ace;
+          h.cards.push(draw()); nh.cards.push(draw()); s.hands.push(nh);
+          if(ace){ h.done=true; nh.done=true; s.active=s.hands.length; }
+        }
+      }
+    }
+  }
+  revealHole();
+  if(S.peeked!=="bj" && act.some(s=>s.hands.some(h=>!h.busted)))
+    while(handValue(S.dealer).total<17) S.dealer.push(draw());
+  S.turn=-1; settleQuiet(); return true;
+}
+function settleQuiet(){
+  const dv=handValue(S.dealer), dBJ=isBJ(S.dealer);
+  for(const s of inPlay()){
+    let net=0;
+    if(s.insurance>0 && dBJ) net+=s.insurance*3;
+    for(const h of s.hands){
+      const hv=handValue(h.cards), pBJ=isBJ(h.cards)&&!h.fromSplit;
+      if(pBJ&&!dBJ) net+=h.bet*(1+S.bjPay);
+      else if(pBJ&&dBJ) net+=h.bet;
+      else if(h.busted||dBJ) net+=0;
+      else if(dv.total>21||hv.total>dv.total) net+=h.bet*2;
+      else if(hv.total===dv.total) net+=h.bet;
+    }
+    const staked=s.hands.reduce((a,h)=>a+h.bet,0)+s.insurance;
+    s.bank+=net; s.st.hands++; s.st.net+=net-staked; s.st.betSum+=staked;
+    if(S.pending) s.st.edgeSum += (s.kind==="basic"?S.basic.preDeal():S.pending.edge);
+  }
+  if(S.pending){
+    const q=Math.min(3,Math.floor(S.pending.depth*4));
+    S.stats.depth[q].n++; S.stats.depth[q].edge+=S.pending.edge; S.pending=null;
+  }
+  checkStops();
+}
+const isLab = () => live().length>0 && !live().some(s=>s.kind==="human");
+function runExperiment(n){
+  if(S.busy || !isLab()) return; S.busy=true;
+  const before=live().map(s=>({name:s.name,bank:s.bank,hands:s.st.hands}));
+  const t0=performance.now();
+  let done=0;
+  for(let i=0;i<n;i++){ if(!fastRound()) break; done++; }
+  const ms=Math.round(performance.now()-t0);
+  const lines=live().map((s,i)=>{
+    const d=s.bank-before[i].bank, hn=s.st.hands-before[i].hands;
+    return `${s.name} ${d>=0?"+":"−"}${money(Math.abs(d))}（${hn} 手，每手 ${d>=0?"+":"−"}$${Math.abs(d/Math.max(1,hn)).toFixed(2)}）`;
+  });
+  pushLog("system", `实验：快跑 ${done} 手`, lines.join("｜")+` · 耗时 ${ms}ms`);
+  for(const s of live()){ s.hands=[]; s.result=null; }
+  S.phase="bet"; S.busy=false; render();
+}
+
+/* ============================================================
+   8. 开局配置
+   ============================================================ */
+const SEATN=4;
+function openSetup(){
+  archiveMatch();
+  S.phase="setup";
+  $("setup").hidden=false;
+  const g=$("seatCfg"); g.innerHTML="";
+  for(let i=0;i<SEATN;i++){
+    const cur=S.seats[i]?S.seats[i].kind:(i===0?"human":i===1?"counter":"empty");
+    const d=document.createElement("div"); d.className="scfg";
+    d.innerHTML=`<div class="sn2">座位 ${i+1}${i===0?"（庄家左手，最先拿牌）":i===SEATN-1?"（三垒，最后行动）":""}</div>
+      <select id="k${i}">${Object.entries(KIND).map(([k,v])=>
+        `<option value="${k}"${k===cur?" selected":""}>${v.n}</option>`).join("")}</select>
+      <div class="sd" id="d${i}">${KIND[cur].s}</div>`;
+    g.appendChild(d);
+    d.querySelector("select").onchange=e=>{ $("d"+i).textContent=KIND[e.target.value].s; };
+  }
+  $("cfgDealer").value = S.dealerHuman?"human":"cpu";
+  $("cfgChip").value=S.chip; $("cfgMax").value=S.maxBet; $("cfgBuyin").value=S.buyin;
+  $("cfgDecks").value=S.decks; $("cfgPen").value=S.penetration; $("cfgBJ").value=S.bjPay;
+  $("cfgStop").value=S.stopLoss;
+  for(const id of ["cfgDecks","cfgPen","cfgChip","cfgBuyin"]) $(id).onchange=penWarn;
+  for(let i=0;i<SEATN;i++) $("k"+i).addEventListener("change",penWarn);
+  penWarn();
+}
+function penWarn(){
+  let n=0;
+  for(let i=0;i<SEATN;i++) if($("k"+i).value!=="empty") n++;
+  const decks=+$("cfgDecks").value, pen=+$("cfgPen").value;
+  const perRound = n*2.7 + 2.9;                    // 一手牌全桌大约吃掉多少张
+  const rounds = (52*decks*pen)/perRound;
+  const chip=+$("cfgChip").value, buyin=+$("cfgBuyin").value, ratio=buyin/chip;
+  const need = decks>1 ? 1000 : 200;
+  const box=$("penWarn"); const msgs=[];
+  if(ratio<need) msgs.push(`<b>本金相对最小注太小，凯利拉不开注码。</b>
+    本金 ${money(buyin)} ÷ 最小注 ${money(chip)} = <b>${Math.round(ratio)}</b>，${decks} 副牌下建议至少 <b>${need}</b>。
+    比例太低时，凯利算出的注额会被最小注下限整个吃掉——等于平注打基本策略，<b>长期必输</b>。
+    实测：6 副牌、本金 $2,000、最小注 $10（比例 200）只有 2.7% 的手能抬注，优势 −0.57%；
+    把最小注降到 $2（比例 1000）立刻变成 +1.57%。`);
+  if(rounds<4.5) msgs.push(`<b>每靴只够打 ${rounds.toFixed(1)} 手。</b>
+    ${n} 个座位每手约吃掉 ${perRound.toFixed(0)} 张，计数还没积累就要重洗。减少座位或增加副数。`);
+  if(!msgs.length){ box.hidden=true; return; }
+  box.hidden=false; box.innerHTML=msgs.join("<hr style='border:0;border-top:1px solid currentColor;opacity:.25;margin:9px 0'>");
+}
+function startMatch(){
+  S.decks=+$("cfgDecks").value; S.penetration=+$("cfgPen").value; S.bjPay=+$("cfgBJ").value;
+  S.chip=+$("cfgChip").value; S.maxBet=+$("cfgMax").value; S.buyin=+$("cfgBuyin").value;
+  S.stopLoss=+$("cfgStop").value;
+  if(S.maxBet<S.chip) S.maxBet=S.chip*50;
+  S.dealerHuman = $("cfgDealer").value==="human";
+  let hn=0, cn=0, bn=0;
+  S.seats=[];
+  for(let i=0;i<SEATN;i++){
+    const k=$("k"+i).value, s=mkSeat(i,k);
+    if(k==="human")   s.name = (++hn)===1 ? "你" : "玩家"+hn;
+    if(k==="counter") s.name = "算牌"+(++cn>1?cn:"");
+    if(k==="basic")   s.name = "基本"+(++bn>1?bn:"");
+    s.bet=S.chip; S.seats.push(s);
+  }
+  if(!live().length){ S.seats[1]=mkSeat(1,"counter"); S.seats[1].name="算牌"; S.seats[1].bet=S.chip; }
+  S.focus = live()[0].i;
+  S.handNo=0; S.logs=[]; S.stats=blankStats(); S.pending=null;
+  S.dealer=[]; S.turn=-1; S.holeUp=false;
+  newShoe();
+  $("setup").hidden=true; S.phase="bet"; showTable();
+}
+
+/* ============================================================
+   9. 控件
+   ============================================================ */
+function bindSeg(id,attr,fn){
+  const el=$(id); if(!el) return;
+  el.addEventListener("click",e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    [...el.querySelectorAll("button")].forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+    fn(b.dataset[attr]);
+  });
+}
+bindSeg("assistSeg","assist",v=>{ S.assist=(v==="on"); render(); });
+bindSeg("speedSeg","speed",v=>{ S.speedMul=+v; });
+$("focusRow").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-seat]"); if(!b) return;
+  S.focus=+b.dataset.seat; render();
+});
+$("btnSetup").onclick=()=>openSetup();
+$("btnHome").onclick=()=>showHome();
+$("goHome2").onclick=()=>showHome();
+$("homeNew").onclick=()=>{ showTable(); openSetup(); };
+$("homeResume").onclick=()=>showTable();
+$("homeRecords").addEventListener("click",e=>{
+  const p=e.target.closest("[data-pin]"), d=e.target.closest("[data-del]");
+  if(p) pinRecord(p.dataset.pin);
+  if(d) delRecord(d.dataset.del);
+});
+$("btnStart").onclick=()=>startMatch();
+$("btnVerify").onclick=async()=>{
+  try{
+    const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(S.shoeSeq));
+    const h=[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+    pushLog(h===S.shoeHash?"win":"lose","牌序验证", h===S.shoeHash
+      ? `重算摘要与开靴承诺一致：${h.slice(0,28)}…。牌序自洗牌后未被改动。`
+      : `摘要不符——牌序被改动过。`);
+  }catch(e){ pushLog("push","牌序验证","此环境不支持 SubtleCrypto。"); }
+  renderLog();
+};
+$("optKelly").onchange=e=>{ S.kellyFrac=+e.target.value; render(); };
+
+S.records=loadRecords();
+/* 进来就是一桌可玩的牌，配置是按钮不是关卡 */
+(function boot(){
+  S.decks=6; S.penetration=.90; S.bjPay=1.5;
+  S.chip=5; S.maxBet=500; S.buyin=10000; S.stopLoss=.5;
+  S.dealerHuman=false;
+  S.seats=[mkSeat(0,"counter"), mkSeat(1,"basic"), mkSeat(2,"human"), mkSeat(3,"empty")];
+  S.seats[0].name="算牌"; S.seats[1].name="基本"; S.seats[2].name="你";
+  for(const x of S.seats) x.bet=S.chip;
+  S.focus=0; S.handNo=0; S.logs=[]; S.stats=blankStats();
+  S.dealer=[]; S.turn=-1; S.holeUp=false;
+  newShoe(); S.phase="bet"; render();
+  showHome();
+})();
+</script>
+</body>
+</html>
