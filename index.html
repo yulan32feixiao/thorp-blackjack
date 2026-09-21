@@ -605,9 +605,9 @@ ol.flow li.br-yes b{color:var(--accent)}
       <div class="seg" id="assistSeg">
         <button data-assist="off" aria-pressed="false">关</button>
         <button data-assist="count" aria-pressed="false">计数</button>
-        <button data-assist="way" aria-pressed="false">索普思路</button>
+        <button data-assist="way" aria-pressed="true">索普思路</button>
         <button data-assist="thorp" aria-pressed="false">算5法</button>
-        <button data-assist="full" aria-pressed="true">精确EV</button>
+        <button data-assist="full" aria-pressed="false">精确EV</button>
       </div></div>
     <div><div class="lbl" style="margin-bottom:4px">速度</div>
       <div class="seg" id="speedSeg">
@@ -957,7 +957,7 @@ const S={
   decks:1, penetration:.75, bjPay:1.5, das:true, kellyFrac:.5,
   chip:5, maxBet:0, buyin:10000, stopLoss:0, winTarget:0, busy:false, autorun:true,
   seats:[], dealerHuman:false,
-  assist:true, assistCount:true, assistMode:"full", speedMul:1, animated:new Set(), tick:0,
+  assist:true, assistCount:true, assistMode:"way", speedMul:1, animated:new Set(), tick:0,
   shoe:[], cut:0, seen:new Array(11).fill(0), total:new Array(11).fill(0),
   shoeHash:"", shoeSeq:"",
   phase:"setup", turn:0, dealer:[], holeUp:false, peeked:null,
