@@ -432,6 +432,11 @@ ol.flow li.br-yes b{color:var(--accent)}
   font-size:11.5px; line-height:1.7; color:var(--ink-2)}
 .qhow b{color:var(--ink)}
 
+.stepbtn{min-width:34px; padding:8px 0; font-size:15px; line-height:1; font-weight:600}
+.stepbtn.sugbtn{min-width:auto; padding:8px 11px; font-size:12px; font-weight:500}
+.stake{gap:6px}
+.stake input{text-align:center}
+
 /* log */
 .log{max-height:290px; overflow-y:auto; padding:0}
 .logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
@@ -1489,7 +1494,7 @@ function renderTable(){
       <span class="bank">${money(s.bank)} <em>${s.bank>=s.startBank?"+":"−"}${money(Math.abs(s.bank-s.startBank))}</em></span>`;
     el.appendChild(head);
     if(!s.hands.length){
-      const p=document.createElement("div"); p.className="waiting";
+      const p=document.createElement("div"); p.className="waiting"; p.dataset.seatbet=s.i;
       p.textContent = s.stopped ? "已离桌，不再下注"
         : S.phase==="bet" ? `下注 ${money(s.bet||0)}` : "等下一手";
       el.appendChild(p);
@@ -1587,13 +1592,34 @@ function renderActions(){
 
   /* ---- 第2排：下注框 + 主操作，也固定 ---- */
   const stake=document.createElement("div"); stake.className="stake";
+  const me=inPlay().find(x=>x.kind==="human");
+  const live2 = S.phase==="bet" && me;
   const inp=document.createElement("input");
   inp.type="number"; inp.id="betInput"; inp.min=S.chip; inp.max=S.maxBet||1e9; inp.step=S.chip;
-  const me=inPlay().find(x=>x.kind==="human");
   inp.value = me ? (me.bet||S.chip) : S.chip;
-  inp.disabled = !(S.phase==="bet" && me);
-  if(me) inp.oninput=()=>{ me.bet=Math.max(S.chip,Math.min(me.bank,capBet(+inp.value||S.chip))); };
-  stake.append(document.createTextNode("下注 $"), inp);
+  inp.disabled = !live2;
+  /* 改注码时就地刷新座位卡，不整页重绘——重绘会打断输入、丢掉光标 */
+  const echo=v=>{
+    const cell=document.querySelector(`[data-seatbet="${me.i}"]`);
+    if(cell) cell.textContent=`下注 ${money(v)}`;
+  };
+  const setBet=v=>{
+    me.bet=Math.max(S.chip, Math.min(me.bank, capBet(Math.round(v/S.chip)*S.chip)));
+    inp.value=me.bet; echo(me.bet);
+  };
+  if(live2){
+    inp.oninput=()=>{ me.bet=Math.max(S.chip,Math.min(me.bank,capBet(+inp.value||S.chip))); echo(me.bet); };
+    inp.onchange=()=>setBet(+inp.value||S.chip);   // 失焦时对齐到实际生效的值
+  }
+  const mk=(txt,fn,cls)=>{ const b=document.createElement("button");
+    b.className="btn stepbtn "+(cls||""); b.textContent=txt; b.disabled=!live2;
+    b.onclick=fn; return b; };
+  stake.append(document.createTextNode("下注 $"),
+    mk("−",()=>setBet(me.bet-S.chip)), inp, mk("+",()=>setBet(me.bet+S.chip)));
+  if(live2 && S.assist){
+    const sug=(isWay()?wayBet(me):adviseBet(asMode(me))).bet;
+    stake.append(mk(`用建议 ${money(sug)}`,()=>setBet(sug),"sugbtn"));
+  }
   row2.appendChild(stake);
 
   const main=document.createElement("button"); main.className="btn slot wide";
