@@ -437,6 +437,12 @@ ol.flow li.br-yes b{color:var(--accent)}
 .stake{gap:6px}
 .stake input{text-align:center}
 
+.focusnote{margin:0 14px; padding:8px 11px; border-radius:7px; background:var(--warn-wash);
+  color:var(--warn); font-size:11.5px; line-height:1.6}
+.focusnote b{font-weight:700}
+.seat.focused{box-shadow:0 0 0 2px var(--ink-3)}
+.seat.acting.focused{box-shadow:0 0 0 3px var(--accent-wash), 0 0 0 2px var(--ink-3)}
+
 /* log */
 .log{max-height:290px; overflow-y:auto; padding:0}
 .logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
@@ -683,6 +689,7 @@ ol.flow li.br-yes b{color:var(--accent)}
   <aside>
     <div class="panel">
       <div class="ph"><h2 id="advisorFor">建议与推导</h2><div id="focusRow"></div></div>
+      <div class="focusnote" id="focusNote" hidden></div>
       <div class="pb" id="advice"></div>
     </div>
 
@@ -1060,6 +1067,47 @@ function trueCount(){ const u=unseen().reduce((a,b)=>a+b,0); return u>0?runningC
    4. 建议 —— counter 用当前牌堆，basic 用完整牌堆
    ============================================================ */
 const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
+
+/* 我再抽一张会爆的概率——软牌永不爆 */
+function bustIfHit(eng,total,soft){
+  if(soft) return 0;
+  let p=0; for(let r=1;r<=10;r++){ const v=(r===1)?1:r; if(total+v>21) p+=eng.p[r]; }
+  return p;
+}
+/* 「为什么是这个动作」：把两个概率摆出来，并说清它们怎么推出行动 */
+function actionWhy(pick, eng, total, soft, u, cards){
+  const mine=bustIfHit(eng,total,soft), his=eng.dealerBust(u);
+  const up=u===1?"A":u, weak=u>=2&&u<=6;
+  if(pick==="stand"){
+    if(total>=17) return `${total} 已经是成手，再抽有 <b>${pct1(mine)}</b> 会爆。停着等结算。`;
+    return weak
+      ? `<b>只看两个数：我抽会爆 ${pct1(mine)}，他会爆 ${pct1(his)}。</b><br>
+         庄家明牌 ${up} 大概率是呆牌，而他<b>必须抽到 17</b>，我却可以停。
+         规则上<b>我一爆就立刻输，他爆我才赢</b>——与其自己冒 ${pct1(mine)} 的险，
+         不如停着让他去撞那 ${pct1(his)}。`
+      : `<b>我抽会爆 ${pct1(mine)}，他只会爆 ${pct1(his)}。</b><br>
+         这手本该搏一下，但牌堆里大牌太密，<b>我抽爆的概率已经高到不值得</b>，停牌反而少亏。`;
+  }
+  if(pick==="hit"){
+    return weak
+      ? `庄家明牌 ${up} 偏弱（爆牌率 <b>${pct1(his)}</b>），但我这 ${total} 抽一张只有 <b>${pct1(mine)}</b> 会爆
+         ——<b>风险小于收益</b>，先把点数做起来。`
+      : `<b>庄家明牌 ${up} 的爆牌率只有 ${pct1(his)}</b>，他大概率做到 17–21。
+         我停在 ${total}，<b>只有他爆（${pct1(his)}）我才赢</b>，等于放弃另外 ${pct1(1-his)}。
+         抽一张虽有 <b>${pct1(mine)}</b> 会爆，但剩下 ${pct1(1-mine)} 能做成可拼的点数。<b>两害相权取其轻。</b>`;
+  }
+  if(pick==="double"){
+    return `${soft?"软":"硬"}${total} 补一张很可能直接做成 19–21，而庄家明牌 ${up} 的爆牌率是
+      <b>${pct1(his)}</b>${weak?"（他最弱的区间）":""}。<b>这是赔率最好的时刻，所以把赌注翻倍</b>
+      ——代价是只能再要一张。`;
+  }
+  const r=cards[0].r;
+  if(r===1) return `一对 A 不拆就是软 12，白白浪费两张最值钱的牌。<b>拆开变成两手 11 点开局</b>，各自去搏 21。`;
+  if(r===8) return `一对 8 不拆就是 <b>16</b>——全场最烂的点数。<b>拆开变成两手 8</b>，各自有机会做成 18。
+     用一份额外赌注，把一手几乎必输的牌换成两手有指望的牌。`;
+  return `一对 ${r} 拆开后，两手都能靠庄家明牌 ${up}（爆牌率 <b>${pct1(his)}</b>）各赢一次
+     ——<b>相当于在有利局面下把赌注加倍</b>。`;
+}
 /* 真人座位在辅助里应当被当成哪种程序：基本策略档 → basic，算牌档 → counter。
    下注、保险、打法三处必须用同一个，否则会出现「打法按基本策略、下注按算牌」的错配。 */
 /* 辅助档位决定「把这个真人座位当成哪种程序」：
@@ -1161,21 +1209,20 @@ function advisePlay(seat){
   ].filter(o=>o.ok).sort((x,y)=>y.ev-x.ev);
   const deviates = seat.kind!=="basic" && bs[0].a!==pick.a;
   const hand=`${soft?"软":"硬"}${total}`, up=u===1?"A":u;
-  const why=[`手上 <b>${hand}</b>，庄家明牌 <b>${up}</b>。`];
-  if(seat.kind==="basic"){
-    why.push(`它按<b>完整牌堆</b>的最优解打，不看已经出过什么牌。`);
-  }else if(seat.kind==="ten"){
-    const u=unseen(), t=u[10], n2=u.slice(1,10).reduce((a,b)=>a+b,0);
-    why.push(`算10法按「非10÷10 = <b>${t>0?(n2/t).toFixed(2):"∞"}</b>」调整打法——10 越密，加倍和分牌越激进。`);
-  }else if(seat.kind==="five"){
-    why.push(unseen()[5]===0
-      ? `Q(5)=0，切换到论文 <b>Table 2</b> 那张专用策略表（表头没有「5」，因为庄家不可能亮出 5）。`
-      : `5 还剩 <b>${unseen()[5]}</b> 张，按完整牌堆策略打——论文规定只有 Q(5)=0 才换表。`);
-  }else{
-    if(total>=12&&total<=16&&u>=2&&u<=6)
-      why.push(`庄家被逼做呆牌——他必须要到 17，<b>而我可以停</b>。`);
-    why.push(`剩下的牌里 10 点占 <b>${pct1(eng.tenDensity())}</b>（正常 ${pct1(S.basic.tenDensity())}），庄家 ${up} 爆牌率 <b>${pct1(eng.dealerBust(u))}</b>。`);
-  }
+  const why=[`<b>${seat.name}</b> 手上 <b>${hand}</b>，庄家明牌 <b>${up}</b>。`];
+  /* 先说「为什么是这个动作」，各系统的特色说明只作补注——顺序不能反 */
+  why.push(actionWhy(pick.a, eng, total, soft, u, h.cards));
+  if(seat.kind==="basic")
+    why.push(`<span class="waydim">它用的是<b>完整牌堆</b>的概率，不看已经出过什么牌——上面那两个数字对它永远是固定的。</span>`);
+  else if(seat.kind==="ten"){
+    const comp=unseen(), t=comp[10], n2=comp.slice(1,10).reduce((a,b)=>a+b,0);
+    why.push(`<span class="waydim">算10法用「非10÷10 = <b>${t>0?(n2/t).toFixed(2):"∞"}</b>」感知 10 的密度——比值越小，上面那两个爆牌率就越偏向对我有利。</span>`);
+  }else if(seat.kind==="five")
+    why.push(`<span class="waydim">${unseen()[5]===0
+      ? "Q(5)=0，切到论文 <b>Table 2</b> 那张专用表（表头没有「5」，因为庄家不可能亮出 5）。"
+      : "5 还剩 <b>"+unseen()[5]+"</b> 张，按完整牌堆策略打——论文规定只有 Q(5)=0 才换表。"}</span>`);
+  else
+    why.push(`<span class="waydim">剩下的牌里 10 点占 <b>${pct1(eng.tenDensity())}</b>（正常 ${pct1(S.basic.tenDensity())}）——这就是上面两个爆牌率偏离教科书值的原因。</span>`);
   if(runner) why.push(`${ACT[pick.a]} 每 $100 是 <b>${per100(pick.ev)}</b>，次选 ${ACT[runner.a]} 是 ${per100(runner.ev)}。`);
   if(deviates) why.push(`完整牌堆下本该 <b>${ACT[bs[0].a]}</b>——是当前牌堆组成把 ${ACT[pick.a]} 顶了上来。`);
   return {legal, pick, deviates, why, hand, up};
@@ -1230,13 +1277,14 @@ function wayPlay(seat){
     const v=(r===1&&!soft&&total+11<=21)?11:r; return acc+((total+v>21&&!soft)?w.eng.p[r]:0);},0);
   const dbust=w.eng.dealerBust(u);
   const steps=[
-    {n:"我手上什么，他亮的什么", t:`我 <b>${soft?"软":"硬"}${total}</b>，庄家明牌 <b>${up}</b>。`},
+    {n:"谁的牌，什么局面", t:`<b>${seat.name}</b> 手上 <b>${soft?"软":"硬"}${total}</b>，庄家明牌 <b>${up}</b>。`},
     {n:"他的处境", t: u>=2&&u<=6
        ? `明牌 ${up} —— 他很可能是呆牌，而且<b>必须抽</b>。爆牌率约 <b>${pct1(dbust)}</b>。<br>我只要不爆，让他自己去撞。`
        : `明牌 ${up} —— 他大概率已经接近成手，爆牌率只有 <b>${pct1(dbust)}</b>。<br>光靠等他爆不行，我得自己做出点数。`},
     {n:"我的处境", t: total>=12&&total<=16
        ? `${total} 是呆牌。再抽一张，<b>约 ${pct1(bust)} 会爆</b>（10 点密度 ${pct1(w.tens)}）。`
        : total>=17 ? `${total} 已经是成手，抽牌几乎必爆。` : `${total} 抽一张很安全，没有爆的风险。`},
+    {n:"所以怎么打", t: actionWhy(a.pick.a, w.eng, total, soft, u, h.cards)},
     {n:"基本策略怎么说", t:`完整牌堆下这一格是 <b>${ACT[b.pick.a]}</b>。`},
     {n:"计数改不改它", t: a.pick.a===b.pick.a
        ? `真数 ${w.tc>=0?"+":"−"}${Math.abs(w.tc).toFixed(1)} <b>还没到翻转这一格的程度</b>，照基本策略打。`
@@ -1343,7 +1391,7 @@ function tick(){
   setTimeout(()=>{
     if(S.phase!=="play") return;
     const a=advisePlay(s);
-    s.thinking.push({t:`${a.hand} 对 ${a.up} → ${ACT[a.pick.a]}`, why:a.why, dev:a.deviates});
+    s.thinking.push({t:`${s.name}：${a.hand} 对 ${a.up} → ${ACT[a.pick.a]}`, why:a.why, dev:a.deviates});
     act(a.pick.a);
   }, sp(750));
 }
@@ -1491,7 +1539,7 @@ function renderTable(){
   for(const s of S.seats){
     if(s.kind==="empty") continue;
     const el=document.createElement("div");
-    el.className="seat"+(S.turn===s.i&&S.phase==="play"?" acting":"");
+    el.className="seat"+(S.turn===s.i&&S.phase==="play"?" acting":"")+(S.focus===s.i?" focused":"");
     const head=document.createElement("div"); head.className="seathead";
     head.innerHTML=`<h3>${s.name}</h3>
       <span class="tag${s.kind==="human"?" you":""}">${KIND[s.kind].n}</span>
@@ -1598,11 +1646,12 @@ function renderActions(){
   /* ---- 第2排：下注框 + 主操作，也固定 ---- */
   const stake=document.createElement("div"); stake.className="stake";
   const me=inPlay().find(x=>x.kind==="human");
-  const live2 = S.phase==="bet" && me;
+  const live2 = (S.phase==="bet" || S.phase==="over") && me;   // 结算后就该能为下一手定注
   const inp=document.createElement("input");
   inp.type="number"; inp.id="betInput"; inp.min=S.chip; inp.max=S.maxBet||1e9; inp.step=S.chip;
   inp.value = me ? (me.bet||S.chip) : S.chip;
   inp.disabled = !live2;
+  inp.title = live2 ? "" : "这一手正在进行中，不能改注码";
   /* 改注码时就地刷新座位卡，不整页重绘——重绘会打断输入、丢掉光标 */
   const echo=v=>{
     const cell=document.querySelector(`[data-seatbet="${me.i}"]`);
@@ -1704,6 +1753,14 @@ function renderRail(phase){
   if(!shown.some(s=>s.i===S.focus)) S.focus = defaultFocus();
   const s=S.seats[S.focus];
   const box=$("advice");
+  const meSeat=live().find(x=>x.kind==="human");
+  const bn=$("focusNote");
+  if(bn){
+    const other = meSeat && s && s.i!==meSeat.i;
+    bn.hidden=!other;
+    if(other) bn.innerHTML=`你正在看 <b>${s.name}</b> 的推理——讲的是<b>它的牌</b>，不是你的。`
+      +` 点右上角「${meSeat.name}」切回自己。`;
+  }
   if(!S.assist){
     $("advisorFor").textContent="辅助已关";
     box.innerHTML=`<p class="muted">所有电脑座位照常按同一套算法运行——下注、打法、保险全都在算，只是推导不显示。
