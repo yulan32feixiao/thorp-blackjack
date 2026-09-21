@@ -946,7 +946,7 @@ function mkSeat(i,kind){
 }
 const S={
   decks:1, penetration:.75, bjPay:1.5, das:true, kellyFrac:.5,
-  chip:5, maxBet:0, buyin:10000, stopLoss:0, winTarget:0, busy:false,
+  chip:5, maxBet:0, buyin:10000, stopLoss:0, winTarget:0, busy:false, autorun:true,
   seats:[], dealerHuman:false,
   assist:true, assistCount:true, assistMode:"full", speedMul:1, animated:new Set(), tick:0,
   shoe:[], cut:0, seen:new Array(11).fill(0), total:new Array(11).fill(0),
@@ -1162,6 +1162,18 @@ function adviseInsurance(seat){
 /* ============================================================
    5. 一局的流程
    ============================================================ */
+/* 开始下一手：清台 → 各座位定注 → 发牌。手点和自动跑共用这一条路径。 */
+function beginNextHand(){
+  if(S.shoe.length<=S.cut) newShoe();
+  for(const x of live()){ x.hands=[]; x.result=null; }
+  if(!inPlay().length){ S.phase="over"; S.autorun=false; return render(); }
+  for(const x of inPlay()){
+    if(x.kind!=="human"){ const b=adviseBet(x); x.bet=Math.min(x.bank,b.bet); x.thinking=[{t:`下注 ${money(x.bet)}`,why:b.why}]; }
+    else x.thinking=[];
+    x.bet=Math.max(S.chip, Math.min(x.bank, capBet(x.bet||S.chip)));
+  }
+  startRound();
+}
 function startRound(){
   S.handNo++; S.holeUp=false; S.peeked=null; S.dealer=[];
   S.pending={edge:getEV(unseen()).preDeal(), depth:1-S.shoe.length/(S.decks*52)};
@@ -1311,6 +1323,8 @@ function settle(){
   checkStops();
   for(const s of live()) s.bankHist.push(s.bank);   // 资金曲线取样
   S.phase="over"; render();
+  /* 全场都是程序 → 不需要人点确认，自己往下打 */
+  if(isLab() && S.autorun && inPlay().length) setTimeout(beginNextHand, sp(850));
 }
 function pushLog(kind,title,text,delta){
   S.logs.unshift({kind,title,text,delta});
@@ -1496,20 +1510,18 @@ function renderActions(){
     if(!inPlay().length){ main.textContent="全部离桌"; main.disabled=true; }
     else{
       main.textContent = needShuffle?"洗牌并发牌":"发牌"; main.classList.add("primary");
-      main.onclick=()=>{
-        if(needShuffle) newShoe();
-        for(const x of inPlay()){
-          if(x.kind!=="human"){ const b=adviseBet(x); x.bet=Math.min(x.bank,b.bet); x.thinking=[{t:`下注 ${money(x.bet)}`,why:b.why}]; }
-          else x.thinking=[];
-          x.bet=Math.max(S.chip,Math.min(x.bank,capBet(x.bet||S.chip)));
-        }
-        startRound();
-      };
+      main.onclick=()=>beginNextHand();
     }
   }else if(S.phase==="over"){
-    main.textContent = needShuffle?"洗牌并继续":"下一手"; main.classList.add("primary");
-    main.onclick=()=>{ if(needShuffle) newShoe();
-      for(const x of live()){ x.hands=[]; x.result=null; } S.phase="bet"; render(); };
+    if(isLab() && inPlay().length){
+      /* 实验局：没有真人，不需要逐手确认 */
+      main.textContent = S.autorun ? "⏸ 暂停" : "▶ 继续自动打";
+      if(!S.autorun) main.classList.add("primary");
+      main.onclick=()=>{ S.autorun=!S.autorun; if(S.autorun) beginNextHand(); else render(); };
+    }else{
+      main.textContent = needShuffle?"洗牌并继续":"下一手"; main.classList.add("primary");
+      main.onclick=()=>beginNextHand();
+    }
   }else{ main.textContent = S.phase==="dealer"?"庄家行动中":"进行中"; main.disabled=true; }
   row2.appendChild(main);
 
@@ -1534,6 +1546,8 @@ function renderActions(){
     newShoe(); for(const x of live()){x.hands=[];x.result=null;} S.phase="bet"; render(); }]);
   if(isLab()&&(S.phase==="bet"||S.phase==="over"))
     for(const n of [100,500,1000,5000]) sec.push([`快跑 ${n} 手`,()=>runExperiment(n)]);
+  if(isLab() && !S.autorun && S.phase==="over" && inPlay().length)
+    sec.unshift(["只打一手",()=>beginNextHand()]);
   const stopped=live().filter(x=>x.stopped);
   if(stopped.length) sec.push([`解除止损（${stopped.map(x=>x.name).join("、")}）`,()=>{
     for(const x of stopped){ x.stopped=false; x.startBank=x.bank; } S.phase="bet"; render(); }]);
@@ -1552,8 +1566,9 @@ function renderActions(){
     : "";
   else if(S.phase==="dealer") hint.innerHTML=`庄家翻开暗牌——<b>从这一刻起他才知道自己的点数</b>，然后要到 17 就停。没有决策。`;
   else if(S.phase==="deal") hint.innerHTML=`发牌中…`;
-  else if(S.phase==="over") hint.innerHTML = needShuffle
-    ? `发到切牌位了（留 ${S.cut} 张），必须重洗。` : `牌靴还剩 ${S.shoe.length} 张。`;
+  else if(S.phase==="over") hint.innerHTML = (isLab()&&S.autorun&&inPlay().length)
+    ? `<b>实验局自动运行中</b>——全场都是程序，不需要你点确认。速度用右上角调；「快跑」可一次打完上千手。`
+    : (needShuffle ? `发到切牌位了（留 ${S.cut} 张），必须重洗。` : `牌靴还剩 ${S.shoe.length} 张。`);
 
   renderRail(S.phase);
 }
@@ -2080,6 +2095,8 @@ function startMatch(){
   S.dealer=[]; S.turn=-1; S.holeUp=false;
   newShoe();
   $("setup").hidden=true; S.phase="bet"; showTable();
+  S.autorun=true;
+  if(isLab()) setTimeout(beginNextHand, sp(500));   // 全程序桌：开局即自动打
 }
 
 /* ============================================================
