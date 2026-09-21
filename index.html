@@ -373,6 +373,53 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
   font-size:12px; line-height:1.7; color:var(--ink-2)}
 .lineage b{color:var(--ink)}
 
+.pbgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(248px,1fr)); gap:12px}
+.pbcard{background:var(--surface-3); border:1px solid var(--rule-soft); border-left:3px solid var(--ink-3);
+  border-radius:9px; padding:13px}
+.pbcard h3{font-family:var(--serif); font-size:15.5px}
+.pbwho{font-size:11px; color:var(--ink-3); margin:3px 0 9px; line-height:1.5}
+.pbwho b{color:var(--ink-2)}
+.pbcard dl{margin:0}
+.pbcard dt{font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); font-weight:700; margin-top:7px}
+.pbcard dd{margin:2px 0 0; font-size:12px; line-height:1.55; color:var(--ink-2)}
+.pbcard dd b{color:var(--ink)}
+.pbnote{margin:10px 0 0; padding-top:9px; border-top:1px solid var(--rule-soft);
+  font-size:11.5px; line-height:1.6; color:var(--ink-3)}
+.pbcase{margin-top:16px; padding-top:14px; border-top:1px solid var(--rule)}
+.pbread{margin-top:12px; display:flex; flex-direction:column; gap:9px}
+.pbread p{margin:0; font-size:12.5px; line-height:1.7; color:var(--ink-2);
+  padding-left:11px; border-left:2px solid var(--rule-soft)}
+.pbread p b{color:var(--ink)}
+.pbcase h4{margin:0 0 8px; font-family:var(--serif); font-size:15px}
+.pbtable{overflow-x:auto; margin:10px 0}
+.pbtable table{width:100%; border-collapse:collapse; font-size:12.5px; min-width:400px}
+.pbtable th{text-align:left; font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:700; padding:0 10px 6px 0; border-bottom:1px solid var(--rule)}
+.pbtable td{padding:7px 10px 7px 0; border-bottom:1px solid var(--rule-soft); color:var(--ink-2)}
+.pbtable td i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:7px; vertical-align:-1px}
+.pbtable td.num{font-family:var(--mono); color:var(--ink)}
+
+.pbflow{margin-top:18px; padding-top:16px; border-top:1px solid var(--rule)}
+.pbflow h4{margin:0 0 8px; font-family:var(--serif); font-size:15px}
+.flowpair{display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:14px; margin:14px 0}
+.flowcol{background:var(--surface-3); border:1px solid var(--rule-soft); border-top:3px solid var(--ink-3);
+  border-radius:9px; padding:13px}
+.flowhead{font-family:var(--serif); font-size:15px; font-weight:600; margin-bottom:11px}
+.flowhead em{font-style:normal; font-size:10.5px; color:var(--ink-3); margin-left:7px; font-family:var(--sans)}
+ol.flow{margin:0; padding:0; list-style:none; counter-reset:f}
+ol.flow li{position:relative; padding:0 0 11px 30px; counter-increment:f}
+ol.flow li::before{content:counter(f); position:absolute; left:0; top:0;
+  width:19px; height:19px; border-radius:50%; background:var(--surface-2); color:var(--ink-2);
+  display:grid; place-items:center; font-family:var(--mono); font-size:10.5px; font-weight:600}
+ol.flow li b{display:block; font-size:12.5px; color:var(--ink); margin-bottom:2px}
+ol.flow li span{display:block; font-size:12px; line-height:1.6; color:var(--ink-2)}
+ol.flow li span em{font-style:normal; color:var(--ink-3)}
+ol.flow li.br-yes::before{background:var(--accent); color:var(--on-accent)}
+ol.flow li.br-yes b{color:var(--accent)}
+.flowfoot{margin-top:6px; padding-top:9px; border-top:1px solid var(--rule-soft);
+  font-size:11px; line-height:1.6; color:var(--ink-3)}
+.flowfoot b{color:var(--ink-2)}
+
 /* log */
 .log{max-height:290px; overflow-y:auto; padding:0}
 .logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
@@ -529,6 +576,11 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
     <button class="btn big" id="homeResume" hidden>继续当前对局</button>
   </div>
   <div class="panel" style="margin-top:20px">
+    <div class="ph"><h2>四种打法</h2><span class="lbl">同一张桌子，不同的大脑</span></div>
+    <div class="pb" id="playbook"></div>
+  </div>
+
+  <div class="panel" style="margin-top:14px">
     <div class="ph"><h2>对局记录</h2><span class="lbl" id="recCount">—</span></div>
     <div id="homeRecords"></div>
   </div>
@@ -1690,7 +1742,7 @@ function renderLog(){
 function showHome(){
   S.view="home"; $("homeView").hidden=false; $("tableView").hidden=true;
   $("homeResume").hidden = !(S.seats.length && S.handNo>0);
-  renderHome();
+  renderHome(); renderPlaybook();
 }
 function showTable(){ S.view="table"; $("homeView").hidden=true; $("tableView").hidden=false; render(); }
 function delRecord(id){ S.records=S.records.filter(r=>r.id!==id); saveRecords(); renderHome(); }
@@ -1712,6 +1764,124 @@ function recCard(r){
         <button class="mini danger" data-del="${r.id}">删除</button>
       </span></div>
     <div class="rsgrid">${rows}</div></div>`;
+}
+/* 「四种打法」：不讲抽象标签，讲同一副牌堆下四个人分别怎么做。
+   下面的数字全部现场算，不是写死的。 */
+const PLAYBOOK=[
+  {k:"basic", who:"鲍德温小组 1956 · <b>索普的起点</b>",
+   see:"只看自己的牌和庄家明牌 —— <b>不看已经出过什么</b>",
+   bet:"永远最小注", play:"完整牌堆的最优解，一辈子不变",
+   note:"打得完美，但拒绝睁眼。它是那条平线，也是全部对照的基准。"},
+  {k:"five", who:"索普 1961 · <b>论文 §3 正式发表的</b>",
+   see:"只追一个数：<b>5 还剩几张</b>",
+   bet:"两档：Q(5)≠0 押最小注 m；Q(5)=0 押大注 M", play:"平时用完整牌堆策略；Q(5)=0 时换 Table 2",
+   note:"全世界第一个被严格证明能赢的赌场策略。简单到能在赌桌上用脑子跑——代价是机会只占 4%。"},
+  {k:"ten", who:"索普 1961–62 · <b>他真正带进赌场的</b>",
+   see:"追两个数：<b>非10 ÷ 10 的比值</b>，开局 36÷16 = 2.25",
+   bet:"比值越小押越多（$1 → $10）", play:"按 10 的密度调整加倍和分牌",
+   note:"10 的单张影响比 5 小，但数量是 5 的四倍——机会多得多。这才是他实战用的。"},
+  {k:"counter", who:"<b>不是索普的系统</b> · 论文 §4 预言的那台机器",
+   see:"保留<b>完整 Q(I) 十个数</b>，每手重新求解",
+   bet:"凯利公式，连续取值", play:"每个决策点现算 max(停, 要, 倍, 分)",
+   note:"论文 §4：「the computer would play a near-perfect game」。人脑跑不动，1985 年后内华达也禁止用设备。"},
+];
+function renderPlaybook(){
+  /* 一个具体局面：单副牌发掉一半，四张5全出尽，10 点偏多 */
+  const comp=[0, 2,2,2,2,0,2,2,2,2,10];      // A,2..9,10 共 26 张
+  const n=comp.reduce((a,b)=>a+b,0);
+  const tens=comp[10], non=n-tens;
+  const rc=(comp[10]+comp[1])-comp.slice(2,7).reduce((a,b)=>a+b,0);
+  const tc=rc/(n/52);
+  const eng=makeEV(comp, S.bjPay, S.das), edge=eng.preDeal();
+  const BANK=10000, CHIP=5, KF=0.5;
+  const kelly=e=>{ const b=Math.max(CHIP,Math.round(BANK*Math.max(0,e/1.26)*KF/CHIP)*CHIP); return b; };
+  const ratio=non/tens, tenEst=-0.0021+(2.25-ratio)*0.0484;
+  const act=(g)=>{ const st=g.evStand(16,10), hi=g.evHit(16,false,10); return st>hi?"停牌":"要牌"; };
+  const CHIPREF=CHIP;
+  const rows=[
+    {k:"basic",   saw:"（不看）",                       bet:CHIP,          act:act(S.basic)},
+    {k:"five",    saw:`5 剩 <b>0</b> 张`,               bet:kelly(edge),   act:act(eng)},
+    {k:"ten",     saw:`比值 <b>${ratio.toFixed(2)}</b>`, bet:kelly(tenEst), act:act(eng)},
+    {k:"counter", saw:`优势 <b>${pct(edge)}</b>`,        bet:kelly(edge),   act:act(eng)},
+  ];
+  const NM=k=>KIND[k].n;
+  $("playbook").innerHTML=
+    `<div class="pbgrid">${PLAYBOOK.map(c=>`
+      <div class="pbcard" style="border-left-color:${SEATCOL[c.k]}">
+        <h3>${NM(c.k)}</h3>
+        <div class="pbwho">${c.who}</div>
+        <dl><dt>它看什么</dt><dd>${c.see}</dd>
+            <dt>下注</dt><dd>${c.bet}</dd>
+            <dt>打法</dt><dd>${c.play}</dd></dl>
+        <p class="pbnote">${c.note}</p>
+      </div>`).join("")}</div>
+
+     <div class="pbcase">
+       <h4>同一个局面，四个人分别怎么做</h4>
+       <p class="plain">单副牌发掉一半，还剩 <b>${n}</b> 张：<b>四张 5 全部出尽</b>，10 点剩 ${tens} 张（密度 ${pct1(tens/n)}，正常 30.8%），真数 <b>+${tc.toFixed(1)}</b>。
+       你手上<b>硬 16</b>，庄家明牌 <b>10</b>。本金 $10,000，最小注 $5，半凯利。</p>
+       <div class="pbtable"><table>
+         <thead><tr><th>打法</th><th>它看到的</th><th>下注</th><th>硬16对10</th></tr></thead>
+         <tbody>${rows.map(r=>`<tr>
+           <td><i style="background:${SEATCOL[r.k]}"></i>${NM(r.k)}</td>
+           <td>${r.saw}</td>
+           <td class="num"><b>${money(r.bet)}</b></td>
+           <td>${r.act}</td></tr>`).join("")}</tbody>
+       </table></div>
+       <div class="pbread">
+         <p><b>① 打法：基本策略要牌，其余三个都停牌。</b>教科书说硬16对10要牌，但这副牌堆 10 点密度 ${pct1(tens/n)}（正常 30.8%）——
+            庄家更容易做成 17–21，你再抽也大概率爆。三个会数牌的都看出来了，基本策略看不出来，因为它<b>不看</b>。</p>
+         <p><b>② 下注：$5 对 ${money(rows[3].bet)}，差 ${Math.round(rows[3].bet/CHIP)} 倍。</b>
+            这就是全部收益的来源——不是打得更对，是<b>在对的时刻押得更重</b>。</p>
+         <p><b>③ 算10法只估到 ${pct(tenEst)}，真值是 ${pct(edge)}，所以只押 ${money(rows[2].bet)}。</b>
+            把十个数压成一个比值，代价就在这一行里。索普很清楚这一点——他要的不是精确，是<b>人脑能在赌桌速度下跑完</b>。</p>
+         <p><b>④ 这一刻算5法和精确EV押得一样多</b>，因为 Q(5)=0 正是它等的那个时刻。
+            但<b>这样的时刻只占 4% 的手</b>，其余 96% 它都在押 $5；精确EV 有 38% 的手在抬注。
+            <b>算5法赢在简单，输在稀少。</b></p>
+       </div>
+     </div>
+
+     <div class="pbflow">
+       <h4>索普算法的运行流程</h4>
+       <p class="plain">下面是<b>可以照着在真牌桌上跑</b>的步骤。注意它们要你记住的东西有多少——这正是索普全部工作的落点。</p>
+
+       <div class="flowpair">
+         <div class="flowcol" style="border-top-color:${SEATCOL.five}">
+           <div class="flowhead">算5法 <em>论文 §3 · 1961</em></div>
+           <ol class="flow">
+             <li><b>洗牌后</b><span>烧一张明牌（所有人可见）。心里记一个数：<b>已见的 5 = 0</b></span></li>
+             <li><b>每翻开一张牌</b><span>是 5 就 <b>+1</b>，其余一律不管。<em>你只需要看「有没有 5」</em></span></li>
+             <li><b>每手发牌前，问一个问题</b><span>已见的 5 是不是 <b>4</b>？</span></li>
+             <li class="br-no"><b>不是 4</b><span>押<b>最小注 m</b>，用鲍德温的完整牌堆策略打</span></li>
+             <li class="br-yes"><b>是 4（Q(5)=0）</b><span>押<b>大注 M</b>，换 Table 2 那张表打。<br>论文 Table 1：此刻期望 <b>+3.29%</b></span></li>
+             <li><b>发到切牌位</b><span>重洗，计数器归零，回到第 1 步</span></li>
+           </ol>
+           <div class="flowfoot">要记住的：<b>1 个数字</b>　抬注频率：<b>约 4%</b>　M/m ≥ 3 即 E&gt;0（脚注 ††）</div>
+         </div>
+
+         <div class="flowcol" style="border-top-color:${SEATCOL.ten}">
+           <div class="flowhead">算10法 <em>书第5章 · 实战版</em></div>
+           <ol class="flow">
+             <li><b>洗牌后</b><span>记两个数：<b>非10 = 36</b>、<b>10 = 16</b>（单副牌）</span></li>
+             <li><b>每翻开一张牌</b><span>是 10/J/Q/K → <b>10 的计数 −1</b><br>其余 → <b>非10 的计数 −1</b></span></li>
+             <li><b>每手发牌前，算一次除法</b><span>比值 = 非10 ÷ 10。开局是 <b>36÷16 = 2.25</b></span></li>
+             <li class="br-no"><b>比值 ≥ 2.25</b><span>10 还没变密，押 <b>$1</b></span></li>
+             <li class="br-yes"><b>比值降到 2.00</b><span>玩家约有 <b>1%</b> 优势，押 <b>$2</b>；<br>比值越小押越多，上到 <b>$10</b></span></li>
+             <li><b>打法</b><span>10 越密，加倍和分牌越激进</span></li>
+           </ol>
+           <div class="flowfoot">要记住的：<b>2 个数字 + 一次除法</b>　论文 §3：<b>有优势的时间接近一半</b></div>
+         </div>
+       </div>
+
+       <p class="plain"><b>为什么他从 5 换到 10。</b>单张 5 的影响比单张 10 大得多（+0.91% vs −0.47%），
+       但 <b>10 的数量是 5 的四倍</b>。「四张 5 全出尽」很罕见，「10 变密」却时时在发生——
+       机会频率从 4% 升到接近一半。<b>他用单张影响换了出现频率。</b></p>
+
+       <p class="plain"><b>这两套都是给人脑设计的。</b>算5法要你记 1 个数，算10法要你记 2 个数再做一次除法——
+       都能在荷官发牌的速度下跑完。相比之下「精确EV」每手要重新求解一个十维问题，人不可能做到，
+       <b>1985 年内华达也立法禁止用设备代劳</b>。
+       索普真正的成就不是算出精确解，而是<b>算出精确解之后，从 3400 万种残牌里蒸馏出一句人能记住的话</b>。</p>
+     </div>`;
 }
 function renderHome(){
   const list=[...S.records].sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)||b.t-a.t);
