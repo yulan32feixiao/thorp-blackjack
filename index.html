@@ -1066,6 +1066,11 @@ const ACT={stand:"停牌", hit:"要牌", double:"加倍", split:"分牌"};
    索普原法档 → 按 1961 论文的算5法给建议；算牌程序档 → 现代精确 EV。*/
 const asMode = seat => ({...seat, kind: S.assistMode==="thorp" ? "five" : "counter"});
 const isWay = () => S.assistMode==="way";
+/* 右栏默认看哪个座位：有真人就看真人——辅助是给玩家看的，不是给他看 AI 的。*/
+const defaultFocus = () => {
+  const h=live().find(x=>x.kind==="human");
+  return h ? h.i : (live().length ? live()[0].i : 0);
+};
 const engFor = seat => {
   if(seat.kind==="basic") return S.basic;
   /* 算5法：论文 §3 —— Q(5)≠0 时用完整牌堆策略，Q(5)=0 时才换成当前牌堆的最优解 */
@@ -1696,7 +1701,7 @@ function renderRail(phase){
   head.innerHTML = (S.assist && shown.length>1)
     ? shown.map(s=>`<button class="fchip${S.focus===s.i?" on":""}" data-seat="${s.i}">${s.name}</button>`).join("")
     : "";
-  if(!shown.some(s=>s.i===S.focus)) S.focus = shown.length?shown[0].i:0;
+  if(!shown.some(s=>s.i===S.focus)) S.focus = defaultFocus();
   const s=S.seats[S.focus];
   const box=$("advice");
   if(!S.assist){
@@ -1758,7 +1763,17 @@ function renderRail(phase){
   }
   $("advisorFor").textContent = s.name+(phase==="over"?" · 这手怎么想的":" · 正在想");
   const steps=s.thinking||[];
-  if(!steps.length && !s.result){ box.innerHTML=`<p class="muted">${s.kind==="human"?"这是真人座位，由你自己决定。":"等这一手开始。"}</p>`; return; }
+  if(!steps.length && !s.result){
+    if(s.kind==="human" && isWay()){
+      /* 还没轮到你，但牌堆一直在变——把「我数到多少 / 这意味着什么 / 优势多少」三步一直挂着 */
+      const a=wayBet(s);
+      $("advisorFor").textContent=s.name+" · 现在牌堆什么样";
+      box.innerHTML=waySteps(a.steps.slice(0,3))
+        +`<p class="muted" style="margin-top:10px">轮到你时，这里会接上「所以押多少」和「这手怎么打」。</p>`;
+      return;
+    }
+    box.innerHTML=`<p class="muted">${s.kind==="human"?"这是真人座位，由你自己决定。":"等这一手开始。"}</p>`; return;
+  }
   box.innerHTML = steps.map((st,i)=>`<div class="step">
       <div class="sh"><span class="sn">${i+1}</span><span class="st">${st.t}</span>
       ${st.dev?`<span class="dev">偏离基本策略</span>`:""}</div>${ul(st.why)}</div>`).join("")
@@ -2238,7 +2253,7 @@ function startMatch(){
     s.bet=S.chip; S.seats.push(s);
   }
   if(!live().length){ S.seats[1]=mkSeat(1,"counter"); S.seats[1].name="算牌"; S.seats[1].bet=S.chip; }
-  S.focus = live()[0].i;
+  S.focus = defaultFocus();
   S.handNo=0; S.logs=[]; S.stats=blankStats(); S.pending=null;
   S.dealer=[]; S.turn=-1; S.holeUp=false;
   newShoe();
@@ -2307,7 +2322,7 @@ S.records=loadRecords();
   S.seats=[mkSeat(0,"ten"), mkSeat(1,"human"), mkSeat(2,"empty"), mkSeat(3,"empty")];
   S.seats[0].name="算10法"; S.seats[1].name="你";
   for(const x of S.seats) x.bet=S.chip;
-  S.focus=0; S.handNo=0; S.logs=[]; S.stats=blankStats();
+  S.focus=defaultFocus(); S.handNo=0; S.logs=[]; S.stats=blankStats();
   S.dealer=[]; S.turn=-1; S.holeUp=false;
   newShoe(); S.phase="bet"; render();
   showHome();
