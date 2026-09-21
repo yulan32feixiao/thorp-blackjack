@@ -428,6 +428,10 @@ ol.flow li.br-yes b{color:var(--accent)}
 .waystep p{margin:0; font-size:12.5px; line-height:1.65; color:var(--ink-2)}
 .waydim{color:var(--ink-3); font-size:11.5px}
 
+.qhow{margin:10px 0 0; padding:9px 11px; border-radius:7px; background:var(--surface-3);
+  font-size:11.5px; line-height:1.7; color:var(--ink-2)}
+.qhow b{color:var(--ink)}
+
 /* log */
 .log{max-height:290px; overflow-y:auto; padding:0}
 .logrow{padding:10px 14px; border-bottom:1px solid var(--rule-soft); font-size:12px}
@@ -567,6 +571,7 @@ ol.flow li.br-yes b{color:var(--accent)}
     <div id="penWarn" class="warnbox" hidden></div>
     <div class="setupfoot">
       <button class="btn primary" id="btnStart">开局</button>
+      <button class="btn" id="btnCancelSetup" hidden>取消</button>
       <p>牌靴会重新洗、本金重置。当前这一局会存进「对局记录」。</p>
     </div>
   </div>
@@ -688,6 +693,7 @@ ol.flow li.br-yes b{color:var(--accent)}
         <div class="qchart" id="qchart"></div>
         <div class="qlabels" id="qlabels"></div>
         <div class="qnums" id="qnums"></div>
+        <p class="qhow" id="qhow"></p>
         <div class="qlegend">
           <span><i style="background:var(--pos)"></i><b>大牌</b> 10/J/Q/K/A · 剩得越多对玩家越好</span>
           <span><i style="background:var(--neg)"></i><b>小牌</b> 2–6 · 剩得越多对庄家越好</span>
@@ -1016,7 +1022,12 @@ function newShoe(){
   const burn=S.shoe.pop(); S.seen[burn.r]++;      // 明烧一张，计入已见
   evCache={key:"",eng:null};
   S.basic=makeEV(S.total.slice(),S.bjPay,S.das);
-  pushLog("system","新牌靴",`洗好 ${S.shoe.length+1} 张，明烧 ${burn.f}${burn.s}。切牌位留 ${S.cut} 张。`);
+  const bt=HILO[burn.r]>0?"+1":HILO[burn.r]<0?"−1":"0";
+  pushLog("system","新牌靴",
+    `洗好 ${S.shoe.length+1} 张。<b>明烧 ${burn.f}${burn.s}</b> —— 这张牌翻开给所有人看，然后不再使用，`
+    +`所以未知牌是 <b>${S.shoe.length}</b> 张而不是 ${S.decks*52}。`
+    +`<br>它是${burn.r===10?"10 点牌":burn.r===1?"A":burn.r+" 点"}，Hi-Lo 记 <b>${bt}</b>，`
+    +`所以这一靴的流水计数<b>从 ${bt} 开始</b>，不是 0。切牌位留 ${S.cut} 张。`);
 }
 async function commit(seq){
   try{
@@ -1549,7 +1560,7 @@ function renderActions(){
   ins.hidden=true;
   const needShuffle=S.shoe.length<=S.cut;
   const seat=curSeat();
-  const playing = S.phase==="play" && seat && seat.kind==="human";
+  const playing = S.phase==="play" && seat && seat.kind==="human" && seat.hands && seat.hands[seat.active];
   const adv = (playing && S.assist) ? (isWay()&&seat.kind==="human" ? wayPlay(seat) : advisePlay(seat.kind==="human"?asMode(seat):seat)) : null;
 
   /* ---- 第1排：四个出牌槽，位置永远固定，不可用时置灰而不是消失 ---- */
@@ -1609,7 +1620,7 @@ function renderActions(){
   if(S.phase==="insurance"){
     ins.hidden=false;
     const s2=curSeat();
-    if(s2 && s2.kind==="human"){
+    if(s2 && s2.kind==="human" && s2.hands && s2.hands[0]){
       const half=Math.floor(s2.hands[0].bet/2), a2=S.assist?adviseInsurance(s2):{take:false};
       ins.innerHTML=`<span>庄家明牌 A —— <b>${s2.name}</b> 要不要买保险？赔 2:1，注码 ${money(half)}</span>`;
       const y=document.createElement("button"); y.className="btn slot"+(S.assist&&a2.take?" primary pick":"");
@@ -1641,7 +1652,7 @@ function renderActions(){
     ? `筹码单位 ${money(S.chip)}，上限 ${S.maxBet?money(S.maxBet):"不限"}。`+(S.assist&&me?` 建议 <b>${money((isWay()?wayBet(me):adviseBet(asMode(me))).bet)}</b>。`:"")
     : `所有座位都已止损离桌。`;
   else if(S.phase==="play") hint.innerHTML = seat
-    ? (seat.kind==="human" ? `轮到 <b>${seat.name}</b>。`+(S.assist?` 建议 <b>${ACT[adv.pick.a]}</b>。`:"")
+    ? (seat.kind==="human" ? `轮到 <b>${seat.name}</b>。`+((S.assist&&adv)?` 建议 <b>${ACT[adv.pick.a]}</b>。`:"")
                            : `<b>${seat.name}</b> 正在打这手牌。`)
     : "";
   else if(S.phase==="dealer") hint.innerHTML=`庄家翻开暗牌——<b>从这一刻起他才知道自己的点数</b>，然后要到 17 就停。没有决策。`;
@@ -1671,7 +1682,8 @@ function renderRail(phase){
 
   /* 真人座位、且轮到他行动 → 给建议；其余 → 给该座位的思考过程 */
   /* 索普思路档：不先给结论，先给推理链，结论放在最后 */
-  if(isWay() && s.kind==="human" && S.turn===s.i && phase==="play"){
+  const hasHand = s && s.hands && s.hands[s.active];
+  if(isWay() && s.kind==="human" && S.turn===s.i && phase==="play" && hasHand){
     const a=wayPlay(s);
     $("advisorFor").textContent=s.name+" · 索普会怎么想";
     box.innerHTML=waySteps(a.steps)
@@ -1687,14 +1699,14 @@ function renderRail(phase){
         <span class="sub">按口诀估的优势 <b>${pct(a.edge)}</b></span></div>`;
     return;
   }
-  if(isWay() && s.kind==="human" && phase==="insurance" && S.turn===s.i){
+  if(isWay() && s.kind==="human" && phase==="insurance" && S.turn===s.i && hasHand){
     const a=wayInsurance(s);
     $("advisorFor").textContent=s.name+" · 索普会怎么想";
     box.innerHTML=waySteps(a.steps)
       +`<div class="verdict" style="margin:12px 0 0"><span class="big">${a.take?"买保险":"不买"}</span></div>`;
     return;
   }
-  if(s.kind==="human" && S.turn===s.i && phase==="play"){
+  if(s.kind==="human" && S.turn===s.i && phase==="play" && hasHand){
     const a=advisePlay(asMode(s));
     $("advisorFor").textContent=s.name+" · 怎么打";
     box.innerHTML=`<div class="verdict"><span class="big">${ACT[a.pick.a]}</span>
@@ -1711,7 +1723,7 @@ function renderRail(phase){
       <span class="sub">每 $100 的平均结果 <b style="color:${a.edge>0?"var(--pos)":"var(--neg)"}">${per100(a.edge)}</b></span></div>${ul(a.why)}`;
     return;
   }
-  if(s.kind==="human" && phase==="insurance" && S.turn===s.i){
+  if(s.kind==="human" && phase==="insurance" && S.turn===s.i && hasHand){
     const a=adviseInsurance(asMode(s));
     $("advisorFor").textContent=s.name+" · 保险";
     box.innerHTML=`<div class="verdict"><span class="big">${a.take?"买保险":"不买"}</span>
@@ -1770,9 +1782,14 @@ function renderQ(){
   }
   $("stats").innerHTML=[
     ["还剩多少张", eng.n, "没发出来的牌", ""],
-    ["真数", (tc>=0?"+":"−")+Math.abs(tc).toFixed(1), tc>0?"大牌偏多，利玩家":tc<0?"小牌偏多，利庄家":"和开局差不多", ""],
+    ["真数", (tc>=0?"+":"−")+Math.abs(tc).toFixed(1),
+      `${runningCount()>=0?"+":"−"}${Math.abs(runningCount())} ÷ ${(eng.n/52).toFixed(2)} 副`
+      +`<br>${tc>0?"大牌偏多，利玩家":tc<0?"小牌偏多，利庄家":"和开局差不多"}`, ""],
     ["现在谁占优", (edge>0?"玩家 ":"庄家 ")+pct1(edge), `每下注 $100 玩家 ${per100(edge)}`, edge>0?"pos":"neg"],
   ].map(([k,v,s,c])=>`<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
+  $("qhow").innerHTML=`<b>怎么数：</b>每看到一张 <b>2–6</b> 就 +1，<b>10/J/Q/K/A</b> 就 −1，7/8/9 不动。
+    整副牌数完必定回到 0。<br><b>真数 = 流水计数 ÷ 还剩几副</b>——同样是 +4，剩一整副和剩半副完全不是一回事。
+    <b>优势 ≈ 真数 × 0.5%</b>。`;
 }
 function renderCasino(){
   const on=S.dealerHuman; $("casinoPanel").hidden=!on; if(!on) return;
@@ -2135,7 +2152,7 @@ function openSetup(){
   $("setup").hidden=false;
   const g=$("seatCfg"); g.innerHTML="";
   for(let i=0;i<SEATN;i++){
-    const cur=S.seats[i]?S.seats[i].kind:(i===0?"human":i===1?"counter":"empty");
+    const cur=S.seats[i]?S.seats[i].kind:(i===0?"ten":i===1?"human":"empty");
     const d=document.createElement("div"); d.className="scfg";
     d.innerHTML=`<div class="sn2">座位 ${i+1}${i===0?"（庄家左手，最先拿牌）":i===SEATN-1?"（三垒，最后行动）":""}</div>
       <select id="k${i}">${Object.entries(KIND).map(([k,v])=>
@@ -2144,6 +2161,7 @@ function openSetup(){
     g.appendChild(d);
     d.querySelector("select").onchange=e=>{ $("d"+i).textContent=KIND[e.target.value].s; };
   }
+  $("btnCancelSetup").hidden = !(S.seats.length && S.handNo>0);
   $("cfgDealer").value = S.dealerHuman?"human":"cpu";
   $("cfgChip").value=S.chip; $("cfgMax").value=S.maxBet; $("cfgBuyin").value=S.buyin;
   $("cfgDecks").value=S.decks; $("cfgPen").value=S.penetration; $("cfgBJ").value=S.bjPay;
@@ -2236,6 +2254,10 @@ $("homeRecords").addEventListener("click",e=>{
   if(d) delRecord(d.dataset.del);
 });
 $("btnStart").onclick=()=>startMatch();
+$("btnCancelSetup").onclick=()=>{
+  $("setup").hidden=true;
+  if(S.seats.length && S.handNo>0) showTable(); else showHome();
+};
 $("btnVerify").onclick=async()=>{
   try{
     const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(S.shoeSeq));
@@ -2256,8 +2278,8 @@ S.records=loadRecords();
   S.dealerHuman=false;
   /* 默认 2 座位：单副牌下每靴约 7 手，计数才发育得起来。
      历史系统（算5法/算10法）在配置页可选——但它们需要更少的座位，见谱系说明。*/
-  S.seats=[mkSeat(0,"counter"), mkSeat(1,"human"), mkSeat(2,"empty"), mkSeat(3,"empty")];
-  S.seats[0].name="精确EV"; S.seats[1].name="你";
+  S.seats=[mkSeat(0,"ten"), mkSeat(1,"human"), mkSeat(2,"empty"), mkSeat(3,"empty")];
+  S.seats[0].name="算10法"; S.seats[1].name="你";
   for(const x of S.seats) x.bet=S.chip;
   S.focus=0; S.handNo=0; S.logs=[]; S.stats=blankStats();
   S.dealer=[]; S.turn=-1; S.holeUp=false;
