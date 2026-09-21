@@ -461,7 +461,9 @@ dl.gloss dd b{color:var(--ink); font-weight:600}
     <p class="lineage"><b>谱系</b>：<b>基本策略（1956）</b>是索普的起点 →
       <b>算5法</b>是他 1961 年印在 PNAS 上的 →
       <b>算10法</b>是他真正带进赌场的 →
-      <b>精确EV</b>不是他的系统，是他论文 §4 预言的那台机器。</p>
+      <b>精确EV</b>不是他的系统，是他论文 §4 预言的那台机器。<br>
+      想看索普原法跑起来，把某个座位换成<b>算5法</b>或<b>算10法</b>——
+      但<b>算5法只在单副牌、座位少的时候才等得到抬注时刻</b>，最好让它单独跟庄家打。</p>
     <h3>座位</h3>
     <div class="seatcfg" id="seatCfg"></div>
 
@@ -1961,8 +1963,10 @@ S.records=loadRecords();
   S.decks=1; S.penetration=.90; S.bjPay=1.5;          // 单副牌：计数摆动最大，注码变化最明显
   S.chip=5; S.maxBet=0; S.buyin=10000; S.stopLoss=0; S.winTarget=0;
   S.dealerHuman=false;
-  S.seats=[mkSeat(0,"five"), mkSeat(1,"counter"), mkSeat(2,"human"), mkSeat(3,"empty")];
-  S.seats[0].name="算5法"; S.seats[1].name="精确EV"; S.seats[2].name="你";
+  /* 默认 2 座位：单副牌下每靴约 7 手，计数才发育得起来。
+     历史系统（算5法/算10法）在配置页可选——但它们需要更少的座位，见谱系说明。*/
+  S.seats=[mkSeat(0,"counter"), mkSeat(1,"human"), mkSeat(2,"empty"), mkSeat(3,"empty")];
+  S.seats[0].name="精确EV"; S.seats[1].name="你";
   for(const x of S.seats) x.bet=S.chip;
   S.focus=0; S.handNo=0; S.logs=[]; S.stats=blankStats();
   S.dealer=[]; S.turn=-1; S.holeUp=false;
