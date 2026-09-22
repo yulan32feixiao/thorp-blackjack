@@ -178,6 +178,7 @@ header.top{
   letter-spacing:.05em; background:var(--accent); color:var(--on-accent);
   padding:1px 5px; border-radius:9px;
 }
+.betnote{margin:4px 0 0;font-size:12px;color:var(--ink-dim);text-align:center;line-height:1.5}
 .stake{display:flex; align-items:center; gap:7px; flex-wrap:wrap}
 .stake input{
   width:96px; font-family:var(--mono); font-size:14px; padding:8px 10px;
@@ -968,7 +969,7 @@ function blankStats(){
 }
 function mkSeat(i,kind){
   return {i, kind, name:"", bank:S.buyin, startBank:S.buyin,
-          hands:[], active:0, bet:0, insurance:0, thinking:[], result:null, stopped:false, betHist:[], bankHist:[],
+          hands:[], active:0, bet:0, betNote:"", insurance:0, thinking:[], result:null, stopped:false, betHist:[], bankHist:[],
           st:{hands:0, net:0, edgeSum:0, betSum:0}};
 }
 const S={
@@ -1307,6 +1308,25 @@ const waySteps=arr=>`<div class="waychain">${arr.map((x,i)=>
 /* ============================================================
    5. 一局的流程
    ============================================================ */
+/* 一手结清后，真人的注码要跟着现在的牌堆重新定位。
+   上一手推了大注、牌堆随即转冷，注码必须自己降回来——粘在原处是真实损失。
+   辅助关着时不能用建议回填（那等于把计数泄露给你），只在洗牌时归位到最小注。 */
+function reseedHumanBet(){
+  const fresh = S.shoe.length<=S.cut;              // 下一手要洗牌 → 优势归零
+  const tc=trueCount(), tcs=(tc>=0?"+":"−")+Math.abs(tc).toFixed(1);
+  for(const x of inPlay()){
+    if(x.kind!=="human") continue;
+    const was=x.bet;
+    const raw = fresh    ? S.chip
+              : S.assist ? (isWay()?wayBet(x):adviseBet(asMode(x))).bet
+              : x.bet;                             // 自己数牌：你的注码你自己定
+    x.bet = Math.max(S.chip, Math.min(x.bank, capBet(raw)));
+    x.betNote = x.bet===was ? ""
+      : fresh ? `洗牌了，优势归零 · ${money(was)} → <b>${money(x.bet)}</b>`
+              : `真数 ${tcs} → ${x.bet<was?"回落":"抬注"} · ${money(was)} → <b>${money(x.bet)}</b>`;
+  }
+}
+
 /* 开始下一手：清台 → 各座位定注 → 发牌。手点和自动跑共用这一条路径。 */
 function beginNextHand(){
   if(S.shoe.length<=S.cut) newShoe();
@@ -1467,6 +1487,7 @@ function settle(){
   }
   checkStops();
   for(const s of live()) s.bankHist.push(s.bank);   // 资金曲线取样
+  reseedHumanBet();                                 // 按结清后的牌堆给真人重新定注
   S.phase="over"; render();
   /* 全场都是程序 → 不需要人点确认，自己往下打 */
   if(isLab() && S.autorun && inPlay().length) setTimeout(beginNextHand, sp(850));
@@ -1675,6 +1696,11 @@ function renderActions(){
     stake.append(mk(`用建议 ${money(sug)}`,()=>setBet(sug),"sugbtn"));
   }
   row2.appendChild(stake);
+  if(me && me.betNote && S.phase==="over"){
+    const note=document.createElement("p");
+    note.className="betnote"; note.innerHTML=me.betNote;
+    row2.appendChild(note);
+  }
 
   const main=document.createElement("button"); main.className="btn slot wide";
   if(S.phase==="bet"){
